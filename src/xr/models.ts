@@ -148,8 +148,10 @@ export function makeSpill(): Mesh {
   return m;
 }
 
+let zoneMat: MeshBasicMaterial | undefined;
 export function makeZoneTile(): Mesh {
-  const m = new Mesh(new PlaneGeometry(TILE * 0.96, TILE * 0.96), new MeshBasicMaterial({ map: hatchTexture(), transparent: true, opacity: 0.9 }));
+  zoneMat ??= new MeshBasicMaterial({ map: hatchTexture(), transparent: true, opacity: 0.9 });
+  const m = new Mesh(new PlaneGeometry(TILE * 0.96, TILE * 0.96), zoneMat);
   m.rotation.x = -Math.PI / 2;
   m.position.y = 0.0008;
   return m;

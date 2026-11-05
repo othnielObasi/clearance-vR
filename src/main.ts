@@ -22,7 +22,7 @@ async function boot() {
       features: { handTracking: { required: false }, hitTest: false, planeDetection: false, anchors: false },
       offer: 'none',
     },
-    render: { near: 0.01, far: 20, camera: { position: [0, 1.25, 0.15], lookAt: [0, 0.9, -0.45] } },
+    render: { near: 0.01, far: 20, camera: { position: [0, 1.21, 0.04], lookAt: [0, 0.89, -0.5] } },
     features: { grabbing: { useHandPinchForGrab: true }, locomotion: false },
   });
   world.registerSystem(makeClearanceSystem(() => app));

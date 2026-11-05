@@ -16,18 +16,20 @@ import {
 import type { Game, Robot } from '../core/game';
 import type { Cell } from '../core/types';
 import { CREW, crewNameFor } from '../core/crew';
+import { Effects } from './effects';
 import {
-  COLORS,
-  makeCrate,
-  makePad,
-  makeRobot,
-  makeSpill,
-  makeWall,
-  makeWorker,
-  makeZoneTile,
-  type RobotModel,
-  TILE,
-} from './models';
+  type CrewModel,
+  floorTexture,
+  makeCrewRobot,
+  makeFloorCrate,
+  makePadV2,
+  makePuddle,
+  makeShelf,
+  makeWorkerV2,
+  mergeStatic,
+} from './look';
+import { COLORS, makeZoneTile, TILE } from './models';
+import { makeBlob as makeBlobLike } from './look';
 
 const MAX_GHOST = 48;
 const STATE_COLOR: Record<Robot['state'], number> = {
@@ -39,7 +41,10 @@ const STATE_COLOR: Record<Robot['state'], number> = {
 };
 
 interface RobotView {
-  model: RobotModel;
+  model: CrewModel;
+  /** Distance driven, for spinning the wheels. */
+  odo: number;
+  wobble: number;
   ghost: InstancedMesh;
   ghostMat: MeshBasicMaterial;
   heading: number;
@@ -66,8 +71,9 @@ export class BoardView {
   private unfold = 0;
   /** World positions of tracked fingertips, set each frame by the app. */
   hands: Vector3[] = [];
-  private crates = new Map<string, Mesh>();
-  private pads = new Map<string, Mesh>();
+  private crates = new Map<string, Group>();
+  private pads = new Map<string, Group>();
+  readonly effects: Effects;
   private m = new Matrix4();
   private v = new Vector3();
   private q = new Quaternion();
@@ -80,6 +86,7 @@ export class BoardView {
     this.width = w * TILE;
     this.depth = h * TILE;
     this.root.add(this.content);
+    this.effects = new Effects(this.content);
     this.buildStatic();
   }
 
@@ -111,6 +118,18 @@ export class BoardView {
     if (v) v.brake = 1;
   }
 
+  /** Sparkles at a cell (deliveries). */
+  sparkle(cell: Cell, color = 0xffd23f) {
+    this.effects.burst(this.cellToLocal(cell[0], cell[1]).setY(0.012), color, 22, { speed: 0.09, up: 0.16, size: 0.0016 });
+  }
+
+  /** A puff at a robot (brakes, incidents). */
+  puff(robotId: string, color = 0xb9b2a5) {
+    const v = this.robots.get(robotId);
+    if (!v) return;
+    this.effects.burst(v.model.root.position.clone().setY(0.004), color, 12, { speed: 0.05, up: 0.04, size: 0.0022, life: 0.5 });
+  }
+
   flash(robotId: string) {
     const v = this.robots.get(robotId);
     if (v) v.flash = 1;
@@ -131,27 +150,18 @@ export class BoardView {
 
   private buildStatic() {
     const g = this.game.level.grid;
-    const base = new Mesh(new BoxGeometry(this.width + 0.02, 0.012, this.depth + 0.02), new MeshStandardMaterial({ color: COLORS.boardEdge, roughness: 0.7 }));
-    base.position.y = -0.0065;
-    base.receiveShadow = true;
-    const top = new Mesh(new PlaneGeometry(this.width, this.depth), new MeshStandardMaterial({ color: COLORS.board, roughness: 0.9 }));
+    const base = new Mesh(new BoxGeometry(this.width + 0.024, 0.012, this.depth + 0.024), new MeshStandardMaterial({ color: COLORS.boardEdge, roughness: 0.45, metalness: 0.2 }));
+    base.position.y = -0.0062;
+    const top = new Mesh(new PlaneGeometry(this.width, this.depth), new MeshStandardMaterial({ map: floorTexture(g.w, g.h), roughness: 0.85 }));
     top.rotation.x = -Math.PI / 2;
     top.position.y = 0.0001;
-    top.receiveShadow = true;
-    this.content.add(base, top);
-
-    // Grid lines as thin instanced strips.
-    const lines = new InstancedMesh(new BoxGeometry(1, 0.0002, 0.0008), new MeshBasicMaterial({ color: COLORS.tileLine }), g.w + g.h + 2);
-    let n = 0;
-    for (let x = 0; x <= g.w; x++) {
-      this.m.compose(this.v.set((x - g.w / 2) * TILE, 0.0003, 0), this.q.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2), this.s.set(this.depth, 1, 1));
-      lines.setMatrixAt(n++, this.m);
-    }
-    for (let y = 0; y <= g.h; y++) {
-      this.m.compose(this.v.set(0, 0.0003, (y - g.h / 2) * TILE), this.q.identity(), this.s.set(this.width, 1, 1));
-      lines.setMatrixAt(n++, this.m);
-    }
-    this.content.add(lines);
+    // Glowing cyan edge along the player's side, so the board reads as a device on the desk.
+    const glow = new Mesh(new BoxGeometry(this.width + 0.024, 0.0025, 0.0025), new MeshBasicMaterial({ color: 0x5ce1e6 }));
+    glow.position.set(0, -0.003, this.depth / 2 + 0.0125);
+    // A soft shadow under the whole board grounds it on the real desk.
+    const shadow = makeBlobLike(this.width * 1.18, this.depth * 1.25);
+    shadow.position.y = -0.0125;
+    this.content.add(base, top, glow, shadow);
 
     const place = (o: Mesh | Group, c: Cell) => {
       const p = this.cellToLocal(c[0], c[1]);
@@ -159,14 +169,23 @@ export class BoardView {
       o.position.z = p.z;
       this.content.add(o);
     };
-    (g.walls ?? []).forEach((c) => place(makeWall(), c));
-    (g.zones ?? []).forEach((c) => place(makeZoneTile(), c));
-    (g.spills ?? []).forEach((c) => place(makeSpill(), c));
+    // Static scenery is built in a scratch group, then merged into a few meshes.
+    const scenery = new Group();
+    const put = (o: Mesh | Group, c: Cell) => {
+      const p = this.cellToLocal(c[0], c[1]);
+      o.position.x = p.x;
+      o.position.z = p.z;
+      scenery.add(o);
+    };
+    (g.walls ?? []).forEach((c, i) => put(makeShelf(i + c[0] * 31 + c[1] * 7), c));
+    (g.zones ?? []).forEach((c) => put(makeZoneTile(), c));
+    (g.spills ?? []).forEach((c) => put(makePuddle(), c));
+    this.content.add(mergeStatic(scenery));
 
     this.syncDynamic();
 
     for (const w of this.game.workers) {
-      const { root, figure } = makeWorker();
+      const { root, figure } = makeWorkerV2();
       const side = (w.def.zoneRadius * 2 + 1) * TILE;
       const zone = new Mesh(
         new PlaneGeometry(side, side),
@@ -184,8 +203,8 @@ export class BoardView {
   syncDynamic() {
     for (const t of this.game.tasks) {
       if (this.crates.has(t.id)) continue;
-      const crate = makeCrate();
-      const pad = makePad();
+      const crate = makeFloorCrate();
+      const pad = makePadV2();
       const a = this.cellToLocal(t.from[0], t.from[1]);
       crate.position.x = a.x;
       crate.position.z = a.z;
@@ -199,7 +218,7 @@ export class BoardView {
     this.game.robots.forEach((r, i) => {
       if (this.robots.has(r.id)) return;
       const colorIndex = CREW[crewNameFor(r.def, i)].color;
-      const model = makeRobot(colorIndex);
+      const model = makeCrewRobot(crewNameFor(r.def, i), COLORS.robot[colorIndex % COLORS.robot.length]!);
       const i0 = colorIndex;
       this.content.add(model.root);
       const ghostMat = new MeshBasicMaterial({ color: COLORS.ghost, transparent: true, opacity: 0.85, depthWrite: false });
@@ -212,7 +231,7 @@ export class BoardView {
       burst.rotation.x = -Math.PI / 2;
       burst.position.y = 0.002;
       model.root.add(burst);
-      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, burst, burstMat });
+      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, burst, burstMat, odo: 0, wobble: 0 });
       model.root.position.copy(this.cellToLocal(r.pos[0], r.pos[1]));
     });
   }
@@ -220,6 +239,7 @@ export class BoardView {
   update(dt: number, time: number) {
     const game = this.game;
     this.syncDynamic();
+    this.effects.update(dt);
     if (this.unfold < 1) {
       this.unfold = Math.min(1, this.unfold + dt / 0.7);
       const e = 1 - Math.pow(1 - this.unfold, 3);
@@ -232,7 +252,7 @@ export class BoardView {
       crate.visible = t.status !== 'done' && !carrier;
       const pad = this.pads.get(t.id)!;
       pad.visible = t.status !== 'done';
-      (pad.material as MeshBasicMaterial).opacity = t.claimedBy ? 0.95 : 0.45;
+      pad.scale.setScalar(t.claimedBy ? 1 : 0.9);
     }
 
     for (const r of game.robots) {
@@ -243,6 +263,11 @@ export class BoardView {
       const dx = p.x - prev.x;
       const dz = p.z - prev.z;
       if (dx * dx + dz * dz > 1e-8) v.heading = Math.atan2(-dx, -dz);
+      const step = Math.hypot(dx, dz);
+      v.odo += step;
+      for (const w of v.model.wheels) w.rotation.x = -v.odo / 0.005;
+      // Antenna springs back after starts and stops.
+      v.wobble = Math.max(v.wobble * Math.pow(0.02, dt), step > 0.0004 && v.wobble < 0.05 ? 0.25 : 0);
       prev.copy(p);
       // A robot that isn't driving turns to look at a hand reaching toward it.
       if (r.state !== 'executing') {
@@ -281,6 +306,11 @@ export class BoardView {
 
       v.brake = Math.max(0, v.brake - dt * 3);
       v.model.root.rotation.x = -0.35 * Math.sin(v.brake * Math.PI);
+      if (v.brake > 0.95 || v.pop > 0.95) v.wobble = 1;
+      v.model.antenna.rotation.x = Math.sin(time * 28) * 0.35 * v.wobble;
+      // Eyes blink now and then.
+      const blink = Math.sin(time * 0.9 + v.colorIndex * 2.1) > 0.985 ? 0.15 : 1;
+      for (const e of v.model.eyes) e.scale.y = blink;
 
       this.updateGhost(r, v, time);
     }

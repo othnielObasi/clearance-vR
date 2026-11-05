@@ -1,6 +1,7 @@
 import {
   type Entity,
   Grabbed,
+  IBLTexture,
   OneHandGrabbable,
   PokeInteractable,
   Pressed,
@@ -25,6 +26,7 @@ import { CREW, type CrewMemory, type CrewName, crewNameFor, emptyMemory } from '
 import { generateDaily } from '../core/daily';
 import { OvertimeDirector, overtimeLevel } from '../core/overtime';
 import { DebugPanel } from '../xr/debug-panel';
+import { makePreviewRoom } from '../xr/look';
 import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
@@ -85,6 +87,8 @@ export class ClearanceApp {
   private debug?: DebugPanel;
   private hitSource?: XRHitTestSource;
   private hitUntil = 0;
+  /** Desk and room shown only in the desktop preview; passthrough replaces it in the headset. */
+  private room = makePreviewRoom();
   level!: LevelDef;
   private dailyLabel = '';
   private dailyKey = '';
@@ -132,8 +136,15 @@ export class ClearanceApp {
   private tmp2 = new Vector3();
 
   constructor(private world: World) {
-    const hemi = new HemisphereLight(0xffffff, 0x8a8070, 2.2);
-    const sun = new DirectionalLight(0xffffff, 1.6);
+    // Soft image-based light from IWSDK's built-in room environment, plus a gentle key light.
+    try {
+      world.activeLevel.value?.addComponent(IBLTexture, { src: 'room', intensity: 0.55 });
+    } catch {
+      /* fall back to the lights below */
+    }
+    world.scene.add(this.room);
+    const hemi = new HemisphereLight(0xffffff, 0x8a8070, 0.55);
+    const sun = new DirectionalLight(0xfff4e6, 0.9);
     sun.position.set(0.4, 2, 0.6);
     world.scene.add(hemi, sun);
 
@@ -453,6 +464,11 @@ export class ClearanceApp {
     const paused = this.userPaused || (inXR && this.world.visibilityState.value !== VisibilityState.Visible);
 
     this.placeBoard();
+    this.room.visible = !inXR;
+    if (!inXR) {
+      this.room.position.set(this.view.root.position.x, this.view.root.position.y - 0.0125, this.view.root.position.z);
+      this.room.rotation.y = this.boardYaw;
+    }
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
 
     this.view.hands = (['left', 'right'] as const).filter((s) => this.tracker.hands[s].tracked).map((s) => this.tracker.hands[s].indexTip);
@@ -480,7 +496,7 @@ export class ClearanceApp {
   private updateDebug(dt: number) {
     if (!this.debug) return;
     const f = (v: number) => v.toFixed(3);
-    const lines = [`fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}   scale ${this.timeScale.toFixed(2)}`];
+    const lines = [`fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}  draws ${this.world.renderer.info.render.calls}  tris ${this.world.renderer.info.render.triangles}`];
     for (const side of ['left', 'right'] as const) {
       const h = this.tracker.hands[side];
       if (!h.tracked) {
@@ -605,18 +621,23 @@ export class ClearanceApp {
       case 'stopped':
         if (e.wasMoving) {
           this.view.brake(e.robot);
+          this.view.puff(e.robot);
           this.sfx.brake();
         }
         break;
       case 'refused':
         this.sfx.refuse();
         break;
-      case 'delivered':
+      case 'delivered': {
         this.sfx.deliver();
+        const t = this.game.tasks.find((x) => x.id === e.task);
+        if (t) this.view.sparkle(t.to);
         break;
+      }
       case 'incident': {
         this.sfx.incident();
         this.view.flash(e.robot);
+        this.view.puff(e.robot, 0xff6b3d);
         const r = this.game.robot(e.robot);
         if (r) this.view.bounceWorkerNear(r.pos);
         break;

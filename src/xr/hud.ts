@@ -90,8 +90,10 @@ export class Hud {
         });
       }
     } else {
-      const m = Math.floor(s.timeLeft / 60);
-      const sec = Math.ceil(s.timeLeft % 60) % 60;
+      // Round up to whole seconds first, then split, so 119.9 s reads 2:00 rather than 1:00.
+      const total = Number.isFinite(s.timeLeft) ? Math.ceil(s.timeLeft) : 0;
+      const m = Math.floor(total / 60);
+      const sec = total % 60;
       const endless = s.best !== undefined;
       const stats = [
         ['Delivered', endless ? `${s.deliveries}` : `${s.deliveries}/${s.target}`],
