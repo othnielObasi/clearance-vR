@@ -294,8 +294,9 @@ export class BoardView {
   private updateGhost(r: Robot, v: RobotView, time: number) {
     const path = this.game.remainingPath(r);
     const proposed = r.state === 'proposed';
-    v.ghostMat.color.setHex(proposed ? COLORS.ghost : COLORS.robot[v.colorIndex % COLORS.robot.length]!);
-    v.ghostMat.opacity = proposed ? 0.9 : 0.35;
+    // Each plan wears its robot's colour, so several proposals stay readable.
+    v.ghostMat.color.setHex(COLORS.robot[v.colorIndex % COLORS.robot.length]!);
+    v.ghostMat.opacity = proposed ? 0.95 : 0.3;
     const n = Math.min(path.length - 1, MAX_GHOST);
     // A pulse travels along the proposed path so the plan reads as intent.
     const pulse = (time * 6) % Math.max(1, n);

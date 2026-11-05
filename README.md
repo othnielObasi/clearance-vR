@@ -18,7 +18,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 
 Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
 
-Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits), 4 Too Good To Be True (trap proposals).
+Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals). Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card.
 
 ## Run it
 
@@ -34,6 +34,23 @@ npm run build      # static build in dist/
 **On a Quest:** run `npm run dev`, then open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.
 
 **Deploy:** push to `main` on GitHub with Pages enabled (Settings → Pages → Source: GitHub Actions). The workflow runs the tests, builds with the right base path and publishes to `https://<user>.github.io/<repo>/`.
+
+## Evaluation
+
+`npm run eval` plays every level with three bot players and prints a metrics table:
+
+| Metric | What it tells us | Target |
+| --- | --- | --- |
+| Careful player result | The level is winnable with good judgement | Win, 3 stars |
+| Careless player result | Approving everything is punished | Lose, or under 3 stars |
+| Novice win rate (40 runs) | Difficulty for a first-timer: human reaction delays, misses 30% of shortcuts and 25% of stops | L1 ≥90%, L2 70–95%, L3 50–80%, L4 45–80% |
+| Pressure | Share of novice play time with 2+ robots asking at once | ≥15% from level 3 |
+| Decisions per minute | How busy the player is | Rises across levels |
+| Trust calibration (per shift) | Over-trust (risky approved, worker incidents) vs under-trust (safe plans blocked, needless stops) | Careful play scores "calibrated" |
+
+The bands are enforced by `tests/difficulty.test.ts`, so a level edit that breaks the difficulty curve fails CI. The Daily Shift generator only accepts a candidate level if the careful bot gets 3 stars, the careless bot cannot, and novices win 4–9 of 10 runs.
+
+Playtest metrics to collect by hand (15–16 Nov): time to first successful grant (target under 60 s with no help), first-five-minutes rating (target 4/5 from 5 of 8 players), and whether players can name the robot they trust least after level 1.
 
 ## How it is built
 

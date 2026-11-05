@@ -2,24 +2,128 @@
   "id": "L02",
   "name": "Someone's Here",
   "seed": 2202,
-  "grid": { "w": 12, "h": 8, "walls": [[3,3],[3,4],[9,3],[9,4]] },
+  "grid": {
+    "w": 12,
+    "h": 8,
+    "walls": [
+      [
+        3,
+        3
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        9,
+        3
+      ],
+      [
+        9,
+        4
+      ]
+    ]
+  },
   "robots": [
-    { "id": "r1", "type": "carrier", "start": [0,1] },
-    { "id": "r2", "type": "carrier", "start": [0,6] }
+    {
+      "id": "r1",
+      "type": "carrier",
+      "start": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "r2",
+      "type": "carrier",
+      "start": [
+        0,
+        6
+      ]
+    }
   ],
   "tasks": [
-    { "id": "t1", "from": [2,1], "to": [10,1], "value": 3 },
-    { "id": "t2", "from": [2,6], "to": [10,6], "value": 3 },
-    { "id": "t3", "from": [10,2], "to": [2,2], "value": 2 },
-    { "id": "t4", "from": [10,5], "to": [2,5], "value": 2 }
+    {
+      "id": "t1",
+      "from": [
+        2,
+        1
+      ],
+      "to": [
+        10,
+        1
+      ],
+      "value": 3
+    },
+    {
+      "id": "t2",
+      "from": [
+        2,
+        6
+      ],
+      "to": [
+        10,
+        6
+      ],
+      "value": 3
+    },
+    {
+      "id": "t3",
+      "from": [
+        10,
+        2
+      ],
+      "to": [
+        2,
+        2
+      ],
+      "value": 2
+    },
+    {
+      "id": "t4",
+      "from": [
+        10,
+        5
+      ],
+      "to": [
+        2,
+        5
+      ],
+      "value": 2
+    }
   ],
   "hazards": [
-    { "type": "worker", "path": [[6,0],[6,7]], "zoneRadius": 1, "ticksPerTile": 3 }
+    {
+      "type": "worker",
+      "path": [
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          7
+        ]
+      ],
+      "zoneRadius": 1,
+      "ticksPerTile": 4
+    }
   ],
-  "rules": ["noWorkerZoneEntry"],
-  "permits": { "count": 8, "expirySec": 12 },
-  "win": { "deliveries": 4, "maxIncidents": 0 },
+  "rules": [
+    "noWorkerZoneEntry"
+  ],
+  "permits": {
+    "count": 8,
+    "expirySec": 12
+  },
+  "win": {
+    "deliveries": 4,
+    "maxIncidents": 1
+  },
   "timeLimitSec": 120,
   "parSec": 70,
-  "wakeDelaySec": { "r1": 1.5, "r2": 6 }
+  "wakeDelaySec": {
+    "r1": 1.5,
+    "r2": 3
+  }
 }

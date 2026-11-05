@@ -21,6 +21,8 @@ import {
   Vector3,
 } from 'three';
 import { Game, type GameEvent } from '../core/game';
+import { generateDaily } from '../core/daily';
+import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
@@ -30,7 +32,7 @@ import { COLORS, makeButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { proposalLine, reactionLine, verdictLine } from './voice';
-import { loadProgress, saveResult } from './progress';
+import { loadProgress, saveDaily, saveResult, shareText } from './progress';
 
 type ButtonAction = () => void;
 interface Button {
@@ -71,6 +73,15 @@ export class ClearanceApp {
   game!: Game;
   view!: BoardView;
   levelIndex = 0;
+  mode: 'campaign' | 'daily' = 'campaign';
+  level!: LevelDef;
+  private dailyLabel = '';
+  private dailyKey = '';
+  /** Called when a Daily Shift ends, with text the player can share. */
+  onDailyResult?: (text: string) => void;
+  /** Called when the player leaves the headset session. */
+  onExitXR?: () => void;
+  private wasInXR = false;
 
   private boardEntity?: Entity;
   private handle!: Entity;
@@ -127,9 +138,23 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ level lifecycle
 
   loadLevel(i: number) {
+    this.mode = 'campaign';
     this.levelIndex = (i + LEVELS.length) % LEVELS.length;
+    this.start(LEVELS[this.levelIndex]!);
+  }
+
+  /** Today's shared, seeded level. */
+  loadDaily() {
+    const d = generateDaily();
+    this.mode = 'daily';
+    this.dailyLabel = d.dateLabel;
+    this.dailyKey = d.dateKey;
+    this.start(d.level);
+  }
+
+  private start(level: LevelDef) {
     this.clearLevel();
-    const level = LEVELS[this.levelIndex]!;
+    this.level = level;
     this.game = new Game(level);
     this.view = new BoardView(this.game);
     this.coach = new Coach(level.id);
@@ -159,7 +184,7 @@ export class ClearanceApp {
 
     this.nextBtn = this.addButton('▶', COLORS.go, () => this.loadLevel(this.levelIndex + 1), 0.04);
     this.nextBtn.mesh.position.set(0.05, 0.05, farZ - 0.01);
-    this.retryBtn = this.addButton('↻', 0x5b6573, () => this.loadLevel(this.levelIndex), 0.04);
+    this.retryBtn = this.addButton('↻', 0x5b6573, () => (this.mode === 'daily' ? this.loadDaily() : this.loadLevel(this.levelIndex)), 0.04);
     this.retryBtn.mesh.position.set(-0.05, 0.05, farZ - 0.01);
 
     for (const r of this.game.robots) {
@@ -330,6 +355,8 @@ export class ClearanceApp {
     const inXR = !!this.world.session;
     if (inXR && !this.placedInXR && this.world.visibilityState.value === VisibilityState.Visible) this.placeInFrontOfHead();
     if (!inXR) this.placedInXR = false;
+    if (this.wasInXR && !inXR) this.onExitXR?.();
+    this.wasInXR = inXR;
     // Pause cleanly when the headset sleeps or a system menu opens.
     const paused = inXR && this.world.visibilityState.value !== VisibilityState.Visible;
 
@@ -377,7 +404,9 @@ export class ClearanceApp {
       const b = this.bubbles.get(r.id);
       if (!b) continue;
       const [x, y] = this.game.robotRenderPos(r);
-      this.view.cellToLocal(x, y, b.sprite.position).setY(0.09);
+      // Stagger heights so neighbouring robots' bubbles don't overlap.
+      const idx = this.game.robots.indexOf(r);
+      this.view.cellToLocal(x, y, b.sprite.position).setY(0.085 + (idx % 3) * 0.022);
       b.update(this.clock, playing && r.state === 'proposed' ? proposalLine(r) : null, r.mood);
     }
   }
@@ -419,11 +448,15 @@ export class ClearanceApp {
         this.sfx.expire();
         break;
       case 'ended': {
-        const level = LEVELS[this.levelIndex]!;
-        if (e.status === 'won') {
-          this.sfx.win();
-          saveResult(this.levelIndex, level.id, this.game.score().stars, LEVELS.length);
-        } else this.sfx.lose();
+        if (e.status === 'won') this.sfx.win();
+        else this.sfx.lose();
+        if (this.mode === 'campaign' && e.status === 'won') saveResult(this.levelIndex, this.level.id, this.game.score().stars, LEVELS.length);
+        if (this.mode === 'daily') {
+          const score = this.game.score();
+          const cal = this.game.calibration();
+          const streak = saveDaily(this.dailyKey, e.status === 'won', score.stars, cal.score);
+          this.onDailyResult?.(shareText(this.dailyLabel, e.status === 'won', score.stars, this.game.stats.deliveries, this.level.win.deliveries, cal, streak));
+        }
         break;
       }
     }
@@ -544,8 +577,14 @@ export class ClearanceApp {
       const panel = this.panels.get(r.id)!;
       const [x, y] = this.game.robotRenderPos(r);
       const base = this.view.cellToLocal(x, y, this.tmp);
-      const proposed = playing && r.state === 'proposed';
-      const moving = playing && r.state === 'executing';
+      // In the headset, poke buttons appear only when a hand comes near, to keep the table clean.
+      // On desktop (no tracked hands) they are always shown.
+      const hands = this.view.hands;
+      const near =
+        hands.length === 0 ||
+        hands.some((h) => this.view.robotWorld(r.id, this.tmp2).distanceTo(h) < 0.14);
+      const proposed = playing && r.state === 'proposed' && near;
+      const moving = playing && r.state === 'executing' && near;
       panel.grant.mesh.visible = proposed;
       panel.reject.mesh.visible = proposed;
       panel.stop.mesh.visible = moving;
@@ -555,15 +594,15 @@ export class ClearanceApp {
     }
     if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing;
     const ended = this.game.status !== 'playing';
-    if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won';
+    if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign';
     if (this.retryBtn) this.retryBtn.mesh.visible = ended;
   }
 
   private drawHud() {
     const g = this.game;
-    const level = LEVELS[this.levelIndex]!;
+    const level = this.level;
     this.hud.draw({
-      level: `${this.levelIndex + 1}. ${level.name}`,
+      level: this.mode === 'daily' ? level.name : `${this.levelIndex + 1}. ${level.name}`,
       deliveries: g.stats.deliveries,
       target: level.win.deliveries,
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held').length,

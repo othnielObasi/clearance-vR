@@ -1,10 +1,15 @@
 import { ReferenceSpaceType, SessionMode, World } from '@iwsdk/core';
+import { LEVELS } from './levels';
 import { ClearanceApp } from './game/app';
+import { loadProgress, streakEnding } from './game/progress';
 import { makeClearanceSystem } from './game/system';
+import { dailySeed } from './core/rng';
 
-const container = document.getElementById('scene') as HTMLDivElement;
-const startBtn = document.getElementById('start') as HTMLButtonElement;
-const status = document.getElementById('status') as HTMLParagraphElement;
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const container = $<HTMLDivElement>('scene');
+const startBtn = $<HTMLButtonElement>('start');
+const dailyBtn = $<HTMLButtonElement>('daily');
+const status = $<HTMLParagraphElement>('status');
 
 let app: ClearanceApp | undefined;
 
@@ -26,17 +31,39 @@ async function boot() {
 
   const xr = navigator.xr;
   const arOK = xr ? await xr.isSessionSupported('immersive-ar').catch(() => false) : false;
-  startBtn.disabled = false;
-  startBtn.textContent = arOK ? 'Start shift' : 'Start (desktop preview)';
+  const progress = loadProgress();
+  const next = Math.min(progress.unlocked, LEVELS.length - 1);
+  const streak = streakEnding(String(dailySeed()));
+  startBtn.disabled = dailyBtn.disabled = false;
+  startBtn.textContent = next > 0 ? `Continue: level ${next + 1}` : 'Start shift';
+  dailyBtn.textContent = streak > 1 ? `Daily Shift · ${streak}-day streak` : 'Daily Shift';
   status.textContent = arOK
     ? 'Sit at a table, put your controllers down, and press Start.'
     : 'No headset detected. Desktop preview: click the buttons above robots to play.';
 
-  startBtn.addEventListener('click', () => {
+  const go = (daily: boolean) => {
     app?.sfx.unlock();
-    if (arOK) world.launchXR();
+    if (daily) app?.loadDaily();
+    else app?.loadLevel(next);
+    document.body.classList.remove('result');
     document.body.classList.add('playing');
+    if (arOK) world.launchXR();
+  };
+  startBtn.addEventListener('click', () => go(false));
+  dailyBtn.addEventListener('click', () => go(true));
+
+  app.onDailyResult = (text) => {
+    $<HTMLPreElement>('shareText').textContent = text;
+    document.body.classList.add('result');
+    // On desktop show it now; in the headset it appears when the player takes it off.
+    if (!world.session) document.body.classList.remove('playing');
+  };
+  app.onExitXR = () => document.body.classList.remove('playing');
+  $<HTMLButtonElement>('copy').addEventListener('click', async () => {
+    await navigator.clipboard?.writeText($<HTMLPreElement>('shareText').textContent ?? '').catch(() => {});
+    $<HTMLButtonElement>('copy').textContent = 'Copied';
   });
+  $<HTMLButtonElement>('again').addEventListener('click', () => document.body.classList.remove('result'));
 }
 
 boot().catch((err) => {
