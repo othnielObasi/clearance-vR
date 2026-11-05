@@ -1,0 +1,31 @@
+{
+  "name": "clearance",
+  "version": "0.1.0",
+  "description": "Clearance — a hands-first mixed-reality puzzle game where you are the authority over autonomous tabletop robots.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@iwsdk/core": "1.1.0-rc.2",
+    "three": "npm:super-three@0.185.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "@types/webxr": "^0.5.24",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  },
+  "private": true,
+  "type": "module",
+  "overrides": {
+    "three": "npm:super-three@0.185.0"
+  }
+}

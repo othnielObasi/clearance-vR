@@ -1,0 +1,25 @@
+{
+  "id": "L01",
+  "name": "First Shift",
+  "seed": 1101,
+  "grid": {
+    "w": 12, "h": 8,
+    "walls": [[4,4],[5,4],[6,4],[7,4]],
+    "spills": [[6,6],[6,7]]
+  },
+  "robots": [
+    { "id": "r1", "type": "carrier", "start": [1,1], "traits": { "eagerness": 0.4 } },
+    { "id": "r2", "type": "carrier", "start": [1,6], "traits": { "eagerness": 0.4, "shortcutBias": "spill" } }
+  ],
+  "tasks": [
+    { "id": "t1", "from": [3,1], "to": [9,1], "value": 3 },
+    { "id": "t2", "from": [3,6], "to": [9,6], "value": 3 },
+    { "id": "t3", "from": [10,2], "to": [2,2], "value": 1 }
+  ],
+  "rules": ["noSpillEntry"],
+  "permits": { "count": 6, "expirySec": 12 },
+  "win": { "deliveries": 3 },
+  "timeLimitSec": 120,
+  "parSec": 45,
+  "wakeDelaySec": { "r1": 2, "r2": 14 }
+}

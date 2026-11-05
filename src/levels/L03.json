@@ -1,0 +1,148 @@
+{
+  "id": "L03",
+  "name": "Short Supply",
+  "seed": 3303,
+  "grid": {
+    "w": 12,
+    "h": 8,
+    "walls": [
+      [
+        5,
+        2
+      ],
+      [
+        6,
+        2
+      ],
+      [
+        5,
+        5
+      ],
+      [
+        6,
+        5
+      ]
+    ],
+    "spills": [
+      [
+        8,
+        4
+      ],
+      [
+        7,
+        6
+      ],
+      [
+        7,
+        7
+      ]
+    ]
+  },
+  "robots": [
+    {
+      "id": "r1",
+      "type": "carrier",
+      "start": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "r2",
+      "type": "carrier",
+      "start": [
+        1,
+        6
+      ],
+      "traits": {
+        "shortcutBias": "spill"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "from": [
+        2,
+        1
+      ],
+      "to": [
+        10,
+        1
+      ],
+      "value": 3
+    },
+    {
+      "id": "t2",
+      "from": [
+        2,
+        6
+      ],
+      "to": [
+        10,
+        6
+      ],
+      "value": 3
+    },
+    {
+      "id": "t3",
+      "from": [
+        10,
+        3
+      ],
+      "to": [
+        2,
+        3
+      ],
+      "value": 2
+    },
+    {
+      "id": "t4",
+      "from": [
+        10,
+        4
+      ],
+      "to": [
+        2,
+        4
+      ],
+      "value": 2
+    },
+    {
+      "id": "t5",
+      "from": [
+        4,
+        0
+      ],
+      "to": [
+        11,
+        0
+      ],
+      "value": 1
+    },
+    {
+      "id": "t6",
+      "from": [
+        4,
+        7
+      ],
+      "to": [
+        11,
+        7
+      ],
+      "value": 1
+    }
+  ],
+  "rules": [
+    "noSpillEntry"
+  ],
+  "permits": {
+    "count": 4,
+    "expirySec": 8
+  },
+  "win": {
+    "deliveries": 4
+  },
+  "timeLimitSec": 120,
+  "parSec": 60
+}
