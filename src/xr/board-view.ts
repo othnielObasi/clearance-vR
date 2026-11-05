@@ -15,6 +15,7 @@ import {
 } from 'three';
 import type { Game, Robot } from '../core/game';
 import type { Cell } from '../core/types';
+import { CREW, crewNameFor } from '../core/crew';
 import {
   COLORS,
   makeCrate,
@@ -162,30 +163,7 @@ export class BoardView {
     (g.zones ?? []).forEach((c) => place(makeZoneTile(), c));
     (g.spills ?? []).forEach((c) => place(makeSpill(), c));
 
-    for (const t of this.game.tasks) {
-      const crate = makeCrate();
-      place(crate, t.from);
-      this.crates.set(t.id, crate);
-      const pad = makePad();
-      place(pad, t.to);
-      this.pads.set(t.id, pad);
-    }
-
-    this.game.robots.forEach((r, i) => {
-      const model = makeRobot(i);
-      this.content.add(model.root);
-      const ghostMat = new MeshBasicMaterial({ color: COLORS.ghost, transparent: true, opacity: 0.85, depthWrite: false });
-      const ghost = new InstancedMesh(new SphereGeometry(0.0042, 8, 6), ghostMat, MAX_GHOST);
-      ghost.count = 0;
-      ghost.frustumCulled = false;
-      this.content.add(ghost);
-      const burstMat = new MeshBasicMaterial({ color: COLORS.go, transparent: true, opacity: 0, depthWrite: false });
-      const burst = new Mesh(new RingGeometry(0.018, 0.022, 32), burstMat);
-      burst.rotation.x = -Math.PI / 2;
-      burst.position.y = 0.002;
-      model.root.add(burst);
-      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i, pop: 0, brake: 0, burst, burstMat });
-    });
+    this.syncDynamic();
 
     for (const w of this.game.workers) {
       const { root, figure } = makeWorker();
@@ -202,8 +180,46 @@ export class BoardView {
     }
   }
 
+  /** Create visuals for robots and tasks that joined since the last frame (Overtime). */
+  syncDynamic() {
+    for (const t of this.game.tasks) {
+      if (this.crates.has(t.id)) continue;
+      const crate = makeCrate();
+      const pad = makePad();
+      const a = this.cellToLocal(t.from[0], t.from[1]);
+      crate.position.x = a.x;
+      crate.position.z = a.z;
+      const b = this.cellToLocal(t.to[0], t.to[1]);
+      pad.position.x = b.x;
+      pad.position.z = b.z;
+      this.content.add(crate, pad);
+      this.crates.set(t.id, crate);
+      this.pads.set(t.id, pad);
+    }
+    this.game.robots.forEach((r, i) => {
+      if (this.robots.has(r.id)) return;
+      const colorIndex = CREW[crewNameFor(r.def, i)].color;
+      const model = makeRobot(colorIndex);
+      const i0 = colorIndex;
+      this.content.add(model.root);
+      const ghostMat = new MeshBasicMaterial({ color: COLORS.ghost, transparent: true, opacity: 0.85, depthWrite: false });
+      const ghost = new InstancedMesh(new SphereGeometry(0.0042, 8, 6), ghostMat, MAX_GHOST);
+      ghost.count = 0;
+      ghost.frustumCulled = false;
+      this.content.add(ghost);
+      const burstMat = new MeshBasicMaterial({ color: COLORS.go, transparent: true, opacity: 0, depthWrite: false });
+      const burst = new Mesh(new RingGeometry(0.018, 0.022, 32), burstMat);
+      burst.rotation.x = -Math.PI / 2;
+      burst.position.y = 0.002;
+      model.root.add(burst);
+      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, burst, burstMat });
+      model.root.position.copy(this.cellToLocal(r.pos[0], r.pos[1]));
+    });
+  }
+
   update(dt: number, time: number) {
     const game = this.game;
+    this.syncDynamic();
     if (this.unfold < 1) {
       this.unfold = Math.min(1, this.unfold + dt / 0.7);
       const e = 1 - Math.pow(1 - this.unfold, 3);

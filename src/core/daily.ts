@@ -57,7 +57,8 @@ function candidate(seed: number, dateLabel: string): LevelDef | null {
   const slyIndex = int(0, 2);
   const robots: RobotDef[] = rows.map((y, i) => {
     take([0, y]);
-    return { id: `r${i + 1}`, type: 'carrier', start: [0, y], traits: i === slyIndex ? { shortcutBias: bias } : {} };
+    const name = i === slyIndex ? 'Bolt' : (['Pip', 'Rook'] as const)[i < slyIndex ? i : i - 1]!;
+    return { id: `r${i + 1}`, name, type: 'carrier', start: [0, y], traits: i === slyIndex ? { shortcutBias: bias } : {} };
   });
   // Keep the column next to the start free so robots can leave.
   for (let y = 0; y < H; y++) used.add(k([1, y]));

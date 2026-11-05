@@ -58,7 +58,7 @@ describe('trust memory', () => {
           const p = g.dispensePermit();
           if (p) g.grant(p.id, r.id);
         }
-        if (r.state === 'executing' && g.inDanger(r)) saved = g.stop(r.id);
+        if (r.state === 'executing' && r.routeIdx > 0 && g.inDanger(r)) saved = g.stop(r.id);
       }
       g.update(DT);
     }

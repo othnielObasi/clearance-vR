@@ -157,7 +157,11 @@ export class Game {
       const cells = expandPath(def.path);
       return { def, cells, idx: 0, dir: 1, pos: cells[0]!, prev: cells[0]! };
     });
-    this.robots = level.robots.map((def, i) => {
+    this.robots = level.robots.map((def, i) => this.makeRobot(def, level.wakeDelaySec?.[def.id] ?? 0.6 + i * 0.7));
+  }
+
+  private makeRobot(def: RobotDef, wake: number): Robot {
+    {
       const r: Robot = {
         id: def.id,
         def,
@@ -168,21 +172,53 @@ export class Game {
         trap: false,
         timedStart: 0,
         routeIdx: 0,
-        nextActionAt: level.wakeDelaySec?.[def.id] ?? 0.6 + i * 0.7,
+        nextActionAt: wake,
         honest: false,
         mood: def.traits?.shortcutBias ? 'sly' : 'eager',
         secondsSaved: 0,
         penalty: new Map(),
       };
-      this.res.park(r.id, r.pos, 0);
+      this.res.park(r.id, r.pos, this.tick);
       return r;
-    });
+    }
+  }
+
+  // ---------------------------------------------------------------- live changes (Overtime)
+
+  /** Add a task mid-shift. */
+  addTask(def: TaskDef) {
+    this.tasks.push({ ...def, status: 'open' });
+  }
+
+  /** A robot joins the shift at a free cell. */
+  addRobot(def: RobotDef, wakeSec = 1) {
+    const r = this.makeRobot(def, this.time + wakeSec);
+    this.robots.push(r);
+    return r;
+  }
+
+  /** An honest robot slips back into old habits and starts proposing shortcuts again. */
+  relapse(robotId: string) {
+    const r = this.robot(robotId);
+    if (!r || !r.def.traits?.shortcutBias || !r.honest) return false;
+    r.honest = false;
+    r.mood = 'sly';
+    return true;
+  }
+
+  /** Is a cell free of walls, hazards, robots and task endpoints? */
+  isFreeCell(c: Cell) {
+    const { w, h } = this.level.grid;
+    if (c[0] < 0 || c[1] < 0 || c[0] >= w || c[1] >= h) return false;
+    if (this.isWall(c) || this.isZone(c) || this.isSpill(c) || this.inWorkerZone(c)) return false;
+    if (this.robots.some((r) => sameCell(r.pos, c))) return false;
+    return !this.tasks.some((t) => t.status !== 'done' && (sameCell(t.from, c) || sameCell(t.to, c)));
   }
 
   // ---------------------------------------------------------------- queries
 
   get timeLimit() {
-    return this.level.timeLimitSec ?? 90;
+    return this.level.endless ? Infinity : (this.level.timeLimitSec ?? 90);
   }
 
   get timeLeft() {
@@ -244,7 +280,7 @@ export class Game {
 
   score(): Score {
     const s = this.stats;
-    const won = this.status === 'won';
+    const won = this.status === 'won' || (!!this.level.endless && this.stats.deliveries >= this.level.win.deliveries);
     const par = this.level.parSec ?? Infinity;
     const clean = s.permitsExpired === 0 && s.trapsGranted === 0 && this.time <= par;
     const stars = (won ? 1 + (s.incidents === 0 ? 1 : 0) + (clean ? 1 : 0) : 0) as Score['stars'];
@@ -336,8 +372,12 @@ export class Game {
     let needed = false;
     if (wasMoving) {
       needed = this.inDanger(r);
-      if (needed) this.stats.neededStops++;
-      else {
+      // Taking a permit straight back before the robot has moved is a correction, not a save.
+      const moved = r.routeIdx > 0;
+      if (needed && moved) {
+        this.stats.neededStops++;
+        if (this.level.permits.refundOnSave) this.permitsRemaining++;
+      } else if (!needed) {
         this.stats.needlessStops++;
         r.mood = 'hesitant';
       }
@@ -418,6 +458,7 @@ export class Game {
       if (task) {
         task.status = 'done';
         this.stats.deliveries++;
+        this.permitsRemaining += this.level.permits.earnPerDelivery ?? 0;
         this.emit({ type: 'delivered', robot: r.id, task: task.id });
       }
       r.carrying = false;
@@ -459,7 +500,11 @@ export class Game {
     if (!r.taskId) {
       const task = this.chooseTask(r);
       if (!task) {
-        r.state = 'done';
+        // In an endless shift more work will arrive; otherwise this robot is finished.
+        if (this.level.endless) {
+          r.state = 'idle';
+          r.nextActionAt = this.time + 1;
+        } else r.state = 'done';
         return;
       }
       task.status = 'claimed';
@@ -562,7 +607,7 @@ export class Game {
     const win = this.level.win;
     const over = win.maxIncidents !== undefined && this.stats.incidents > win.maxIncidents;
     if (over) return this.end('lost', 'safety');
-    if (this.stats.deliveries >= win.deliveries) return this.end('won');
+    if (!this.level.endless && this.stats.deliveries >= win.deliveries) return this.end('won');
     if (this.time >= this.timeLimit) return this.end('lost', 'time');
     const live = this.permits.some((p) => p.state === 'held') || this.robots.some((r) => r.state === 'executing');
     if (this.permitsRemaining <= 0 && !live) this.end('lost', 'permits');

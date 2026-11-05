@@ -1,7 +1,7 @@
 import { ReferenceSpaceType, SessionMode, World } from '@iwsdk/core';
 import { LEVELS } from './levels';
 import { ClearanceApp } from './game/app';
-import { loadProgress, streakEnding } from './game/progress';
+import { loadProgress, overtimeBest, streakEnding } from './game/progress';
 import { makeClearanceSystem } from './game/system';
 import { dailySeed } from './core/rng';
 
@@ -9,6 +9,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const container = $<HTMLDivElement>('scene');
 const startBtn = $<HTMLButtonElement>('start');
 const dailyBtn = $<HTMLButtonElement>('daily');
+const overtimeBtn = $<HTMLButtonElement>('overtime');
 const status = $<HTMLParagraphElement>('status');
 
 let app: ClearanceApp | undefined;
@@ -34,23 +35,27 @@ async function boot() {
   const progress = loadProgress();
   const next = Math.min(progress.unlocked, LEVELS.length - 1);
   const streak = streakEnding(String(dailySeed()));
-  startBtn.disabled = dailyBtn.disabled = false;
+  startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = false;
+  const best = overtimeBest();
+  overtimeBtn.textContent = best > 0 ? `Overtime · best ${best}` : 'Overtime';
   startBtn.textContent = next > 0 ? `Continue: level ${next + 1}` : 'Start shift';
   dailyBtn.textContent = streak > 1 ? `Daily Shift · ${streak}-day streak` : 'Daily Shift';
   status.textContent = arOK
     ? 'Sit at a table, put your controllers down, and press Start.'
     : 'No headset detected. Desktop preview: click the buttons above robots to play.';
 
-  const go = (daily: boolean) => {
+  const go = (mode: 'campaign' | 'daily' | 'overtime') => {
     app?.sfx.unlock();
-    if (daily) app?.loadDaily();
+    if (mode === 'daily') app?.loadDaily();
+    else if (mode === 'overtime') app?.loadOvertime();
     else app?.loadLevel(next);
     document.body.classList.remove('result');
     document.body.classList.add('playing');
     if (arOK) world.launchXR();
   };
-  startBtn.addEventListener('click', () => go(false));
-  dailyBtn.addEventListener('click', () => go(true));
+  startBtn.addEventListener('click', () => go('campaign'));
+  dailyBtn.addEventListener('click', () => go('daily'));
+  overtimeBtn.addEventListener('click', () => go('overtime'));
 
   app.onDailyResult = (text) => {
     $<HTMLPreElement>('shareText').textContent = text;

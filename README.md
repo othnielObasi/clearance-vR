@@ -18,7 +18,13 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 
 Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
 
-Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals). Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card.
+Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals). Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card. And **Overtime**: an endless shift where tasks keep coming, new robots join as you score, reformed robots relapse, and every delivery earns a permit back; it ends at your first safety mistake. A stop that genuinely prevents harm refunds its permit; taking a permit straight back does not count.
+
+**The crew.** Bolt (orange, rule-bender), Pip (teal, careful), Rook (purple, steady) and Juno (pink, speedy) appear across all modes. Each remembers how you treated them between sessions (caught, let through, stopped for nothing, saved) and greets you accordingly. Bolt starts bold if you have let his shortcuts through more often than you caught them.
+
+**Real-world grounding.** On entering the headset the game looks for your real desk with WebXR hit-testing and rests the board on it (falling back to a head-relative position). Each shift ends with a field note linking its lesson to how real automated systems are supervised.
+
+**Tuning on a headset.** Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board.
 
 ## Run it
 

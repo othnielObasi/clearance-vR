@@ -8,6 +8,8 @@ export type ShortcutBias = 'workerZone' | 'spill';
 
 export interface RobotDef {
   id: string;
+  /** Crew member name (Bolt, Pip, Rook, Juno); sets colour and personality lines. */
+  name?: string;
   type: RobotType;
   start: Cell;
   traits?: { eagerness?: number; shortcutBias?: ShortcutBias };
@@ -45,9 +47,11 @@ export interface LevelDef {
   tasks: TaskDef[];
   hazards?: WorkerDef[];
   rules: RuleId[];
-  permits: { count: number; expirySec: number };
+  permits: { count: number; expirySec: number; /** Permits earned back per delivery (Overtime). */ earnPerDelivery?: number; /** A stop that prevented harm gives its permit back. */ refundOnSave?: boolean };
   win: { deliveries: number; maxIncidents?: number };
   timeLimitSec?: number;
+  /** Endless shift: no win, no clock; ends at the first loss condition (Overtime). */
+  endless?: boolean;
   parSec?: number;
   /** Seconds before each robot's first proposal, by robot id (tutorial pacing). */
   wakeDelaySec?: Record<string, number>;

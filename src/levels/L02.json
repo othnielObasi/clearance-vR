@@ -27,6 +27,7 @@
   "robots": [
     {
       "id": "r1",
+      "name": "Pip",
       "type": "carrier",
       "start": [
         0,
@@ -35,6 +36,7 @@
     },
     {
       "id": "r2",
+      "name": "Rook",
       "type": "carrier",
       "start": [
         0,

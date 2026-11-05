@@ -21,7 +21,10 @@ import {
   Vector3,
 } from 'three';
 import { Game, type GameEvent } from '../core/game';
+import { CREW, type CrewMemory, type CrewName, crewNameFor, emptyMemory } from '../core/crew';
 import { generateDaily } from '../core/daily';
+import { OvertimeDirector, overtimeLevel } from '../core/overtime';
+import { DebugPanel } from '../xr/debug-panel';
 import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
@@ -31,8 +34,8 @@ import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
-import { proposalLine, reactionLine, verdictLine } from './voice';
-import { loadProgress, saveDaily, saveResult, shareText } from './progress';
+import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
+import { crewMemory, loadProgress, overtimeBest, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
 
 type ButtonAction = () => void;
 interface Button {
@@ -73,7 +76,15 @@ export class ClearanceApp {
   game!: Game;
   view!: BoardView;
   levelIndex = 0;
-  mode: 'campaign' | 'daily' = 'campaign';
+  mode: 'campaign' | 'daily' | 'overtime' = 'campaign';
+  private director?: OvertimeDirector;
+  private best = 0;
+  /** How each crew member was treated this shift; saved to their memory when it ends. */
+  private crewTally = new Map<CrewName, CrewMemory>();
+  private crewSaved = false;
+  private debug?: DebugPanel;
+  private hitSource?: XRHitTestSource;
+  private hitUntil = 0;
   level!: LevelDef;
   private dailyLabel = '';
   private dailyKey = '';
@@ -152,8 +163,18 @@ export class ClearanceApp {
     this.start(d.level);
   }
 
+  /** Endless shift: keep going until the first safety mistake. */
+  loadOvertime() {
+    this.mode = 'overtime';
+    this.director = new OvertimeDirector(Math.floor(Math.random() * 1e6));
+    this.best = overtimeBest();
+    this.start(overtimeLevel());
+  }
+
   private start(level: LevelDef) {
+    this.flushCrew();
     this.clearLevel();
+    if (this.mode !== 'overtime') this.director = undefined;
     this.level = level;
     this.game = new Game(level);
     this.view = new BoardView(this.game);
@@ -165,7 +186,7 @@ export class ClearanceApp {
     const leftX = -this.view.width / 2;
 
     // HUD floats above the far edge, tilted toward the player.
-    this.hud.mesh.position.set(0, 0.11, farZ - 0.02);
+    this.hud.mesh.position.set(0, 0.145, farZ - 0.02);
     this.hud.mesh.rotation.x = -0.25;
     this.view.root.add(this.hud.mesh);
 
@@ -187,20 +208,54 @@ export class ClearanceApp {
     this.retryBtn = this.addButton('↻', 0x5b6573, () => (this.mode === 'daily' ? this.loadDaily() : this.loadLevel(this.levelIndex)), 0.04);
     this.retryBtn.mesh.position.set(-0.05, 0.05, farZ - 0.01);
 
+    this.game.robots.forEach((r) => this.ensureRobotUI(r.id));
+    // Bolt remembers being let through: he starts bold.
     for (const r of this.game.robots) {
-      const bubble = new Bubble();
-      this.view.content.add(bubble.sprite);
-      this.bubbles.set(r.id, bubble);
-      this.panels.set(r.id, {
-        grant: this.addButton('✓', COLORS.go, () => this.grantByButton(r.id)),
-        reject: this.addButton('✗', 0xff8a3d, () => this.rejectRobot(r.id)),
-        stop: this.addButton('■', COLORS.stop, () => this.stopRobot(r.id)),
-      });
+      const name = crewNameFor(r.def, this.game.robots.indexOf(r));
+      const mem = crewMemory(name);
+      if (r.def.traits?.shortcutBias && mem.riskyApproved > mem.caught) r.mood = 'bold';
+      this.bubbles.get(r.id)?.react(greetingLine(name, mem), 0.4, 3.2);
+    }
+    if (new URLSearchParams(location.search).has('debug')) {
+      this.debug ??= new DebugPanel();
+      this.debug.mesh.position.set(this.view.width / 2 + 0.1, 0.12, -this.view.depth / 2);
+      this.debug.mesh.rotation.y = -0.4;
+      this.view.root.add(this.debug.mesh);
     }
     this.placeBoard();
   }
 
+  /** Create bubble and poke buttons for a robot (also for robots that join mid-shift). */
+  private ensureRobotUI(id: string) {
+    if (this.panels.has(id)) return;
+    const r = this.game.robot(id)!;
+    const bubble = new Bubble(COLORS.robot[CREW[crewNameFor(r.def, this.game.robots.indexOf(r))].color]!);
+    this.view.content.add(bubble.sprite);
+    this.bubbles.set(id, bubble);
+    this.panels.set(id, {
+      grant: this.addButton('✓', COLORS.go, () => this.grantByButton(id)),
+      reject: this.addButton('✗', 0xff8a3d, () => this.rejectRobot(id)),
+      stop: this.addButton('■', COLORS.stop, () => this.stopRobot(id)),
+    });
+  }
+
+  private tally(robotId: string): CrewMemory {
+    const r = this.game.robot(robotId)!;
+    const name = crewNameFor(r.def, this.game.robots.indexOf(r));
+    let t = this.crewTally.get(name);
+    if (!t) this.crewTally.set(name, (t = emptyMemory()));
+    return t;
+  }
+
+  /** Save how the crew was treated this shift (once per shift). */
+  private flushCrew() {
+    if (!this.crewSaved && this.crewTally.size) saveCrew(this.crewTally);
+    this.crewTally = new Map();
+    this.crewSaved = false;
+  }
+
   private clearLevel() {
+    if (this.debug) this.view?.root.remove(this.debug.mesh);
     for (const b of this.buttons.values()) b.entity.dispose();
     this.buttons.clear();
     this.panels.clear();
@@ -250,6 +305,7 @@ export class ClearanceApp {
     this.handle.object3D!.position.set(hp.x + dir.x * (BOARD_FORWARD - 0.2), hp.y - BOARD_BELOW, hp.z + dir.z * (BOARD_FORWARD - 0.2));
     this.handle.object3D!.rotation.set(0, this.boardYaw, 0);
     this.placedInXR = true;
+    void this.startDeskSnap();
   }
 
   // ------------------------------------------------------------------ actions (shared by gestures and buttons)
@@ -367,7 +423,12 @@ export class ClearanceApp {
     if (!paused) {
       this.handleGestures(dt);
       this.updateSlowMotion(dt);
+      if (this.director) {
+        this.director.step(this.game);
+        for (const a of this.director.announcements.splice(0)) this.coach.say(a, 3);
+      }
       this.game.update(dt * this.timeScale);
+      this.updateDeskSnap();
     }
     for (const e of this.game.drainEvents()) this.onGameEvent(e);
     this.coach.update(dt);
@@ -376,6 +437,73 @@ export class ClearanceApp {
     this.updateButtons();
     this.updateBubbles();
     this.drawHud();
+    this.updateDebug(dt);
+  }
+
+  private updateDebug(dt: number) {
+    if (!this.debug) return;
+    const f = (v: number) => v.toFixed(3);
+    const lines = [`fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}   scale ${this.timeScale.toFixed(2)}`];
+    for (const side of ['left', 'right'] as const) {
+      const h = this.tracker.hands[side];
+      if (!h.tracked) {
+        lines.push(`${side}: not tracked`);
+        continue;
+      }
+      const pinch = h.thumbTip.distanceTo(h.indexTip);
+      let bestDot = -1;
+      for (const r of this.game.robots) {
+        const d = this.view.robotWorld(r.id, this.tmp).sub(h.palm).normalize().dot(h.palmNormal);
+        bestDot = Math.max(bestDot, d);
+      }
+      lines.push(`${side}: pinch ${f(pinch)} ${h.pinching ? 'PINCH' : ''}${h.open ? 'OPEN' : ''}`);
+      lines.push(`  palm·robot ${f(bestDot)} (need ${f(GESTURE.palmConeCos)})`);
+      lines.push(`  palm up ${f(h.palmNormal.y)}  flick ${f(Math.hypot(h.velocity.x, h.velocity.z))} m/s`);
+    }
+    lines.push(`permits ${this.game.permitsRemaining}  robots ${this.game.robots.map((r) => r.state[0]).join('')}`);
+    this.debug.update(dt, lines);
+  }
+
+  /** Look for the real desk just after entering XR and rest the board on it. */
+  private async startDeskSnap() {
+    const session = this.world.session;
+    if (!session || !('XRRay' in window)) return;
+    try {
+      const viewer = await session.requestReferenceSpace('viewer');
+      this.hitSource = await session.requestHitTestSource?.({
+        space: viewer,
+        offsetRay: new XRRay({ x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: -0.75, z: -0.66, w: 0 }),
+      });
+      this.hitUntil = this.clock + 3;
+    } catch {
+      this.hitSource = undefined; // hit-test not granted: keep the head-relative placement
+    }
+  }
+
+  private updateDeskSnap() {
+    if (!this.hitSource) return;
+    const frame = this.world.xrFrame;
+    const ref = this.world.xrReferenceSpace;
+    if (this.clock > this.hitUntil || !frame || !ref) {
+      this.hitSource.cancel();
+      this.hitSource = undefined;
+      return;
+    }
+    const hit = frame.getHitTestResults(this.hitSource)[0]?.getPose(ref);
+    if (!hit) return;
+    const p = new Vector3(hit.transform.position.x, hit.transform.position.y, hit.transform.position.z).applyMatrix4(this.world.player.matrixWorld);
+    const head = this.world.player.head.getWorldPosition(new Vector3());
+    const below = head.y - p.y;
+    const flat = Math.hypot(p.x - head.x, p.z - head.z);
+    if (below < 0.15 || below > 1.0 || flat > 0.9) return; // not a plausible desk
+    // Board centre on the hit point; handle at the near edge, toward the player.
+    const toPlayer = new Vector3(head.x - p.x, 0, head.z - p.z).normalize();
+    const off = this.view.depth / 2 + 0.03;
+    this.handle.object3D!.position.set(p.x + toPlayer.x * off, p.y + 0.012, p.z + toPlayer.z * off);
+    this.boardYaw = Math.atan2(toPlayer.x, toPlayer.z);
+    this.coach.say('Board placed on your desk.', 2.5);
+    this.hitSource.cancel();
+    this.hitSource = undefined;
   }
 
   /** Half a second of slow motion when a moving robot is about to reach a worker: time to react, and drama. */
@@ -406,7 +534,7 @@ export class ClearanceApp {
       const [x, y] = this.game.robotRenderPos(r);
       // Stagger heights so neighbouring robots' bubbles don't overlap.
       const idx = this.game.robots.indexOf(r);
-      this.view.cellToLocal(x, y, b.sprite.position).setY(0.085 + (idx % 3) * 0.022);
+      this.view.cellToLocal(x, y, b.sprite.position).setY(0.08 + (idx % 3) * 0.016);
       b.update(this.clock, playing && r.state === 'proposed' ? proposalLine(r) : null, r.mood);
     }
   }
@@ -414,8 +542,20 @@ export class ClearanceApp {
   private onGameEvent(e: GameEvent) {
     this.coach.onEvent(e);
     if ('robot' in e) {
+      this.ensureRobotUI(e.robot);
       const line = reactionLine(e);
       if (line) this.bubbles.get(e.robot)?.react(line, this.clock);
+      const t = this.tally(e.robot);
+      if (e.type === 'rejected' && e.trap) t.caught++;
+      if (e.type === 'granted' && e.trap) t.riskyApproved++;
+      if (e.type === 'delivered') t.delivered++;
+      if (e.type === 'stopped' && e.wasMoving) e.needed ? t.saves++ : t.needlessStops++;
+      if (e.type === 'stopped' && !e.wasMoving && e.needed) t.caught++;
+    }
+    if (e.type === 'ended') {
+      if (this.mode === 'overtime') this.best = saveOvertime(this.game.stats.deliveries);
+      this.flushCrew();
+      this.crewSaved = true;
     }
     switch (e.type) {
       case 'proposed':
@@ -574,6 +714,7 @@ export class ClearanceApp {
   private updateButtons() {
     const playing = this.game.status === 'playing';
     for (const r of this.game.robots) {
+      this.ensureRobotUI(r.id);
       const panel = this.panels.get(r.id)!;
       const [x, y] = this.game.robotRenderPos(r);
       const base = this.view.cellToLocal(x, y, this.tmp);
@@ -595,6 +736,7 @@ export class ClearanceApp {
     if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing;
     const ended = this.game.status !== 'playing';
     if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign';
+    if (this.retryBtn && this.mode === 'overtime') this.retryBtn.action = () => this.loadOvertime();
     if (this.retryBtn) this.retryBtn.mesh.visible = ended;
   }
 
@@ -602,7 +744,9 @@ export class ClearanceApp {
     const g = this.game;
     const level = this.level;
     this.hud.draw({
-      level: this.mode === 'daily' ? level.name : `${this.levelIndex + 1}. ${level.name}`,
+      level: this.mode === 'campaign' ? `${this.levelIndex + 1}. ${level.name}` : level.name,
+      best: this.mode === 'overtime' ? Math.max(this.best, g.stats.deliveries) : undefined,
+      note: g.status === 'playing' ? undefined : fieldNote(level.id),
       deliveries: g.stats.deliveries,
       target: level.win.deliveries,
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held').length,

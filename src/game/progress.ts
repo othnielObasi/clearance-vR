@@ -1,3 +1,5 @@
+import { type CrewMemory, type CrewName, emptyMemory } from '../core/crew';
+
 const KEY = 'clearance.progress.v1';
 
 export interface Progress {
@@ -78,13 +80,66 @@ export function shareText(
   stars: number,
   delivered: number,
   target: number,
-  cal: { caught: number; saves: number; riskyApproved: number; safeBlocked: number; score: number },
+  cal: { caught: number; saves: number; overTrust: number; safeBlocked: number; score: number },
   streak: number,
 ): string {
   return [
     `Clearance Daily Shift · ${dateLabel}`,
     `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}  ${won ? 'Shift complete' : 'Shift over'} · ${delivered}/${target} delivered`,
-    `Caught ${cal.caught} · Saves ${cal.saves} · Risky OK'd ${cal.riskyApproved} · Safe blocked ${cal.safeBlocked}`,
+    `Caught ${cal.caught} · Saves ${cal.saves} · Risks let through ${cal.overTrust} · Safe blocked ${cal.safeBlocked}`,
     `Trust calibration ${cal.score}/100${streak > 1 ? ` · ${streak}-day streak` : ''}`,
   ].join('\n');
+}
+
+
+const CREW_KEY = 'clearance.crew.v1';
+const OVERTIME_KEY = 'clearance.overtime.v1';
+
+export function loadCrew(): Record<string, CrewMemory> {
+  try {
+    const raw = localStorage.getItem(CREW_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, CrewMemory>;
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+export function crewMemory(name: CrewName): CrewMemory {
+  return { ...emptyMemory(), ...(loadCrew()[name] ?? {}) };
+}
+
+/** Add one shift's tallies to each crew member's memory. */
+export function saveCrew(tally: Map<CrewName, CrewMemory>) {
+  const all = loadCrew();
+  for (const [name, t] of tally) {
+    const m = { ...emptyMemory(), ...(all[name] ?? {}) };
+    for (const k of Object.keys(t) as (keyof CrewMemory)[]) m[k] += t[k];
+    m.shifts += 1;
+    all[name] = m;
+  }
+  try {
+    localStorage.setItem(CREW_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function overtimeBest(): number {
+  try {
+    return Number(localStorage.getItem(OVERTIME_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Saves a new best if beaten; returns the best. */
+export function saveOvertime(score: number): number {
+  const best = Math.max(score, overtimeBest());
+  try {
+    localStorage.setItem(OVERTIME_KEY, String(best));
+  } catch {
+    /* ignore */
+  }
+  return best;
 }

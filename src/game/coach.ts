@@ -6,6 +6,8 @@ const INTRO: Record<string, string> = {
   L02: 'Workers first. Open your palm at a robot to stop it.',
   L03: 'Only 4 permits. Each fades 8 s after you take it.',
   L04: 'Some plans look fast but break the rules.',
+  OVERTIME: 'Keep it running. One safety mistake ends the shift.',
+  DAILY: "Today's shift. Same board for everyone.",
 };
 
 const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
@@ -39,7 +41,7 @@ export class Coach {
     this.hold = 6;
   }
 
-  private say(text: string, holdSec = 4) {
+  say(text: string, holdSec = 4) {
     this.message = text;
     this.hold = holdSec;
   }

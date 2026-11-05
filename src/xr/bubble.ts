@@ -24,7 +24,11 @@ export class Bubble {
   private reactUntil = 0;
   private reaction = '';
 
-  constructor() {
+  private accent: string;
+
+  /** `accent` is the robot's colour, used for the outline so the bubble reads as that robot's. */
+  constructor(accent = 0x1b1f24) {
+    this.accent = `#${accent.toString(16).padStart(6, '0')}`;
     this.canvas.width = W;
     this.canvas.height = H;
     this.g = this.canvas.getContext('2d')!;
@@ -74,8 +78,8 @@ export class Bubble {
     g.closePath();
     g.fillStyle = fill;
     g.fill();
-    g.lineWidth = 4;
-    g.strokeStyle = 'rgba(20,24,30,0.5)';
+    g.lineWidth = 9;
+    g.strokeStyle = this.accent;
     g.stroke();
     g.fillStyle = '#1b1f24';
     g.textAlign = 'center';

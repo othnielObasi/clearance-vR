@@ -71,6 +71,7 @@
   "robots": [
     {
       "id": "r1",
+      "name": "Rook",
       "type": "carrier",
       "start": [
         0,
@@ -79,6 +80,7 @@
     },
     {
       "id": "r2",
+      "name": "Bolt",
       "type": "carrier",
       "start": [
         0,
@@ -90,6 +92,7 @@
     },
     {
       "id": "r3",
+      "name": "Juno",
       "type": "carrier",
       "start": [
         0,

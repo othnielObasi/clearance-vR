@@ -1,3 +1,4 @@
+import type { CrewMemory, CrewName } from '../core/crew';
 import type { Calibration, GameEvent, Mood, Robot } from '../core/game';
 
 /** What a waiting robot says about its own plan. Two to four words: readable at a glance. */
@@ -60,5 +61,48 @@ export function verdictLine(c: Calibration): string {
       return 'Too cautious: you blocked safe work.';
     default:
       return 'Mixed: some risks through, some safe work blocked.';
+  }
+}
+
+
+/** What a crew member says at the start of a shift, based on how you treated them before. */
+export function greetingLine(name: CrewName, m: CrewMemory): string {
+  const met = m.shifts > 0;
+  switch (name) {
+    case 'Bolt':
+      if (m.riskyApproved > m.caught) return 'You let me through last time…';
+      if (m.caught >= 2) return 'Fine. Maybe by the book.';
+      if (m.caught === 1) return "Bet you can't catch me twice.";
+      return 'I know all the shortcuts.';
+    case 'Pip':
+      if (m.needlessStops > 0) return "Please don't stop me for nothing.";
+      return met ? 'Good to see you again!' : 'Ready when you are.';
+    case 'Rook':
+      if (m.saves > 0) return 'Thanks for looking out.';
+      return met ? 'Back on shift.' : 'Steady as she goes.';
+    case 'Juno':
+      if (m.caught > 0) return "Okay, okay. I'll behave… maybe.";
+      return "Let's go fast!";
+  }
+}
+
+/**
+ * One line linking the shift's lesson to how real automated systems are supervised.
+ * Kept general and accurate; shown on the end-of-shift card.
+ */
+export function fieldNote(levelId: string): string {
+  switch (levelId) {
+    case 'L01':
+      return 'Field note: an AI that asks a person before acting is called human-in-the-loop.';
+    case 'L02':
+      return 'Field note: industrial robots have emergency stops that work independently of their control software.';
+    case 'L03':
+      return 'Field note: approvals that expire limit what a stale "yes" can do later.';
+    case 'L04':
+      return 'Field note: optimisers can find shortcuts that meet the goal but break the rules. Review the plan.';
+    case 'OVERTIME':
+      return 'Field note: people grow complacent with automation that usually works. Keep checking.';
+    default:
+      return 'Field note: over-trust and under-trust are both known failure modes in human–automation teams.';
   }
 }

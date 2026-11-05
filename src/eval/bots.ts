@@ -22,7 +22,13 @@ export function playCareful(level: LevelDef, maxSec = 200, observe?: Observer) {
           g.reject(r.id);
           continue;
         }
-        if (r.route!.slice(0, 6).some((c) => nearWorker(g, c, 2))) continue;
+        // Wait if the first steps run into the worker, or the route ever crosses its zone now.
+        // A plan the worker has since walked into is stale: send it back to be replanned.
+        if (r.route!.some((c) => nearWorker(g, c, 0))) {
+          g.reject(r.id);
+          continue;
+        }
+        if (r.route!.slice(0, 4).some((c) => nearWorker(g, c, 1))) continue;
         const p = g.permits.find((x) => x.state === 'held') ?? g.dispensePermit();
         if (p) g.grant(p.id, r.id);
       }
@@ -87,3 +93,21 @@ export function playNovice(level: LevelDef, seed: number, maxSec = 200, observe?
   }
   return g;
 }
+
+/** Run Overtime with a given player bot; returns the finished game. */
+export function playOvertime(
+  player: 'careful' | 'careless' | 'novice',
+  seed = 7,
+  maxSec = 300,
+): Game {
+  // Imported lazily to keep the core bots free of mode-specific code.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { overtimeLevel, OvertimeDirector } = OVERTIME;
+  const dir = new OvertimeDirector(seed);
+  const level = overtimeLevel(seed);
+  const observe: Observer = (g) => dir.step(g);
+  if (player === 'careful') return playCareful(level, maxSec, observe);
+  if (player === 'careless') return playCareless(level, maxSec, observe);
+  return playNovice(level, seed, maxSec, observe);
+}
+import * as OVERTIME from '../core/overtime';

@@ -11,10 +11,14 @@ export interface HudState {
   stars?: number;
   result?: 'won' | 'lost';
   calibration?: Calibration;
+  /** Overtime: best score, shown instead of the clock. */
+  best?: number;
+  /** End-of-shift line linking the lesson to the real world. */
+  note?: string;
 }
 
 const W = 1024;
-const H = 300;
+const H = 360;
 
 /** A floating status card above the far edge of the board, drawn to a canvas. */
 export class Hud {
@@ -55,15 +59,24 @@ export class Hud {
       g.font = '700 64px system-ui, sans-serif';
       g.fillStyle = s.result === 'won' ? '#3fb950' : '#ff6b6b';
       g.fillText(s.result === 'won' ? 'Shift complete' : 'Shift over', 44, 150);
-      g.font = '64px system-ui, sans-serif';
-      g.fillStyle = '#ffd23f';
-      g.fillText('★'.repeat(s.stars ?? 0) + '☆'.repeat(3 - (s.stars ?? 0)), W - 280, 150);
+      if (s.best !== undefined) {
+        // Overtime: the score is the point.
+        g.font = '600 46px system-ui, sans-serif';
+        g.fillStyle = '#ffd23f';
+        g.textAlign = 'right';
+        g.fillText(`${s.deliveries} delivered · best ${s.best}`, W - 44, 150);
+        g.textAlign = 'left';
+      } else {
+        g.font = '64px system-ui, sans-serif';
+        g.fillStyle = '#ffd23f';
+        g.fillText('★'.repeat(s.stars ?? 0) + '☆'.repeat(3 - (s.stars ?? 0)), W - 280, 150);
+      }
       if (s.calibration) {
         const c = s.calibration;
         const items: [string, number, boolean][] = [
           ['Caught', c.caught, false],
           ['Saves', c.saves, false],
-          ["Risky OK'd", c.riskyApproved, c.riskyApproved > 0],
+          ['Risks let through', c.overTrust, c.overTrust > 0],
           ['Safe blocked', c.safeBlocked, c.safeBlocked > 1],
         ];
         items.forEach(([label, n, bad], i) => {
@@ -79,10 +92,11 @@ export class Hud {
     } else {
       const m = Math.floor(s.timeLeft / 60);
       const sec = Math.ceil(s.timeLeft % 60) % 60;
+      const endless = s.best !== undefined;
       const stats = [
-        ['Delivered', `${s.deliveries}/${s.target}`],
+        ['Delivered', endless ? `${s.deliveries}` : `${s.deliveries}/${s.target}`],
         ['Permits', `${s.permits}`],
-        ['Time', `${m}:${String(sec).padStart(2, '0')}`],
+        endless ? ['Best', `${s.best}`] : ['Time', `${m}:${String(sec).padStart(2, '0')}`],
       ];
       stats.forEach(([label, value], i) => {
         const x = 44 + i * 320;
@@ -98,6 +112,11 @@ export class Hud {
     g.fillStyle = '#5ce1e6';
     g.font = s.result ? '30px system-ui, sans-serif' : '36px system-ui, sans-serif';
     g.fillText(s.message, 44, s.result ? 278 : 262, W - 88);
+    if (s.result && s.note) {
+      g.font = '26px system-ui, sans-serif';
+      g.fillStyle = '#c9d1d9';
+      g.fillText(s.note, 44, 326, W - 88);
+    }
     this.tex.needsUpdate = true;
   }
 }
