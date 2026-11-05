@@ -33,6 +33,10 @@ export function reactionLine(e: GameEvent): string | null {
       return e.needed ? 'Phew, thanks!' : 'Why?!';
     case 'delivered':
       return 'Delivered!';
+    case 'held':
+      return 'Hand in the way!';
+    case 'rerouted':
+      return 'Okay, going round.';
     case 'incident':
       return 'Oops!';
     case 'refused':

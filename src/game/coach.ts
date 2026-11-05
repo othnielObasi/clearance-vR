@@ -25,6 +25,13 @@ const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
   },
 };
 
+/** Tips shown once per level whenever they first become relevant, in any level. */
+const ANYWHERE: Record<string, string> = {
+  held: 'Your hand is a wall: robots wait for it.',
+  rerouted: 'It found a way round your hand.',
+  lean: 'Tall racking hides things. Lean to look, or press the eye.',
+};
+
 const LOSS: Record<LossReason, string> = {
   time: "Time's up.",
   safety: 'Safety breach: someone was put at risk.',
@@ -44,6 +51,14 @@ export class Coach {
   say(text: string, holdSec = 4) {
     this.message = text;
     this.hold = holdSec;
+  }
+
+  /** Show a general tip the first time it applies in this shift. */
+  tip(key: string) {
+    const text = ANYWHERE[key];
+    if (!text || this.seen.has(key)) return;
+    this.seen.add(key);
+    this.say(text, 5);
   }
 
   private first(key: string) {
@@ -73,6 +88,10 @@ export class Coach {
         break;
       case 'stopped':
         this.first('stopped');
+        break;
+      case 'held':
+      case 'rerouted':
+        this.tip(e.type);
         break;
       case 'permitExpired':
         if (!this.first('permitExpired')) this.say('A permit faded.', 2.5);

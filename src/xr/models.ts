@@ -236,6 +236,16 @@ function drawShapeIcon(g: CanvasRenderingContext2D, icon: string): boolean {
       g.fill();
       g.fillRect(30, 80, 68, 14);
       return true;
+    case '👁':
+      g.beginPath();
+      g.ellipse(64, 64, 40, 24, 0, 0, Math.PI * 2);
+      g.lineWidth = 9;
+      g.strokeStyle = '#ffffff';
+      g.stroke();
+      g.beginPath();
+      g.arc(64, 64, 12, 0, Math.PI * 2);
+      g.fill();
+      return true;
     default:
       return false;
   }

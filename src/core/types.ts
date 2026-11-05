@@ -42,6 +42,8 @@ export interface LevelDef {
     /** Static no-go areas (a worker zone painted on the floor). */
     zones?: Cell[];
     spills?: Cell[];
+    /** Wall cells built as tall racking that hides what is behind it from a seated view. */
+    tall?: Cell[];
   };
   robots: RobotDef[];
   tasks: TaskDef[];

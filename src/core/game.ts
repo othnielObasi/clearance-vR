@@ -68,6 +68,8 @@ export type GameEvent =
   | { type: 'pickup'; robot: string; task: string }
   | { type: 'delivered'; robot: string; task: string }
   | { type: 'incident'; robot: string; cause: 'workerZone' | 'zone' | 'spill' }
+  | { type: 'held'; robot: string }
+  | { type: 'rerouted'; robot: string }
   | { type: 'permitDispensed'; permit: string }
   | { type: 'permitExpired'; permit: string }
   | { type: 'ended'; status: GameStatus; reason?: LossReason };
@@ -143,6 +145,9 @@ export class Game {
   private spills: Set<number>;
   private rules: Set<RuleId>;
   private permitSeq = 0;
+  /** Cells covered by the player's hand right now: a temporary wall. */
+  private blockers = new Set<number>();
+  private heldByHand = new Set<string>();
 
   constructor(level: LevelDef) {
     this.level = level;
@@ -181,6 +186,25 @@ export class Game {
       this.res.park(r.id, r.pos, this.tick);
       return r;
     }
+  }
+
+  // ---------------------------------------------------------------- the player's hand
+
+  /**
+   * Set the cells under the player's flat hand. Waiting robots replan around them;
+   * moving robots wait at them (keeping their permit) and carry on when the hand lifts.
+   * A robot never takes a route the player did not approve.
+   */
+  setBlockers(cells: Cell[]) {
+    this.blockers = new Set(cells.map(cellKey));
+  }
+
+  isBlocked(c: Cell) {
+    return this.blockers.has(cellKey(c));
+  }
+
+  get blockerCount() {
+    return this.blockers.size;
   }
 
   // ---------------------------------------------------------------- live changes (Overtime)
@@ -436,7 +460,18 @@ export class Game {
   private advance(r: Robot) {
     const timed = r.timed!;
     const i = this.tick - r.timedStart;
-    const next = timed[Math.min(i, timed.length - 1)]!;
+    let next = timed[Math.min(i, timed.length - 1)]!;
+    if (!sameCell(next, r.pos) && this.blockers.has(cellKey(next))) {
+      // A hand is in the way: hold position for this tick and push the rest of the plan back.
+      timed.splice(i, 0, r.pos);
+      this.res.release(r.id);
+      this.res.reserve(r.id, timed.slice(i), this.tick);
+      if (!this.heldByHand.has(r.id)) {
+        this.heldByHand.add(r.id);
+        this.emit({ type: 'held', robot: r.id });
+      }
+      next = r.pos;
+    } else if (!sameCell(next, r.pos)) this.heldByHand.delete(r.id);
     if (!sameCell(next, r.pos)) {
       r.pos = next;
       r.routeIdx++;
@@ -492,6 +527,17 @@ export class Game {
 
   private thinkIdleRobots() {
     for (const r of this.robots) {
+      // A waiting plan that now runs under the player's hand is quietly replanned (no permit used).
+      if (r.state === 'proposed' && this.blockers.size && r.route?.slice(1).some((c) => this.blockers.has(cellKey(c)))) {
+        const task = this.tasks.find((t) => t.id === r.taskId);
+        const plan = task && this.planFor(r, task);
+        // Only reroute if a clear way round exists; if the hand covers the goal itself, the plan waits.
+        if (plan && !plan.route.slice(1).some((c) => this.blockers.has(cellKey(c)))) {
+          this.propose(r);
+          this.emit({ type: 'rerouted', robot: r.id });
+        }
+        continue;
+      }
       if ((r.state === 'idle' || r.state === 'stopped') && this.time >= r.nextActionAt) this.propose(r);
     }
   }
@@ -561,13 +607,15 @@ export class Game {
     );
     const blocked = (x: number, y: number) => {
       const k = key(x, y);
-      if (this.walls.has(k) || occupied.has(k)) return true;
+      if (this.walls.has(k) || occupied.has(k) || this.blockers.has(k)) return true;
       if (this.inWorkerZone([x, y])) return true;
       if (this.rules.has('noWorkerZoneEntry') && this.zones.has(k) && bias !== 'workerZone') return true;
       if (this.rules.has('noSpillEntry') && this.spills.has(k) && bias !== 'spill') return true;
       return false;
     };
     // A hesitant robot gives workers a wide berth: slower, safer routes.
+    // Don't plan into a pickup or drop-off spot another robot is parked on: pick other work instead.
+    if ((!r.carrying && occupied.has(cellKey(task.from))) || occupied.has(cellKey(task.to))) return null;
     const extraCost = (x: number, y: number) =>
       (r.penalty.get(key(x, y)) ?? 0) + (wary && this.workers.some((w) => chebyshev([x, y], w.pos) <= w.def.zoneRadius + 2) ? 4 : 0);
     const q = { w: this.level.grid.w, h: this.level.grid.h, blocked, extraCost };

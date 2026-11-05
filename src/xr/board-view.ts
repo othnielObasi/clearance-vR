@@ -13,13 +13,18 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import type { Game, Robot } from '../core/game';
+import { expandPath, type Game, type Robot } from '../core/game';
 import type { Cell } from '../core/types';
 import { CREW, crewNameFor } from '../core/crew';
 import { Effects } from './effects';
 import {
   type CrewModel,
-  floorTexture,
+  makeBollard,
+  makeChargingPad,
+  makeDock,
+  makeRack,
+  makeStencil,
+  warehouseFloor,
   makeCrewRobot,
   makeFloorCrate,
   makePadV2,
@@ -69,6 +74,8 @@ export class BoardView {
   private workers: { root: Group; figure: Group; zone: Mesh; bounce: number; waveCooldown: number }[] = [];
   /** 0 → 1 as the board unfolds from the desk after loading. */
   private unfold = 0;
+  /** Glow on the cells under the player's flat hand. */
+  private handCells!: InstancedMesh;
   /** World positions of tracked fingertips, set each frame by the app. */
   hands: Vector3[] = [];
   private crates = new Map<string, Group>();
@@ -87,6 +94,15 @@ export class BoardView {
     this.depth = h * TILE;
     this.root.add(this.content);
     this.effects = new Effects(this.content);
+    this.handCells = new InstancedMesh(
+      new PlaneGeometry(TILE * 0.9, TILE * 0.9),
+      new MeshBasicMaterial({ color: 0xff9f43, transparent: true, opacity: 0.45, depthWrite: false }),
+      16,
+    );
+    this.handCells.count = 0;
+    this.handCells.renderOrder = 3;
+    this.handCells.frustumCulled = false;
+    this.content.add(this.handCells);
     this.buildStatic();
   }
 
@@ -116,6 +132,25 @@ export class BoardView {
   brake(robotId: string) {
     const v = this.robots.get(robotId);
     if (v) v.brake = 1;
+  }
+
+  /** Show which cells the hand is blocking. */
+  setHandCells(cells: Cell[]) {
+    const n = Math.min(cells.length, 16);
+    for (let i = 0; i < n; i++) {
+      const c = cells[i]!;
+      this.cellToLocal(c[0], c[1], this.v).setY(0.0016);
+      this.m.compose(this.v, this.q.setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2), this.s.set(1, 1, 1));
+      this.handCells.setMatrixAt(i, this.m);
+    }
+    this.handCells.count = n;
+    this.handCells.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Board-local point to (fractional) cell coordinates. */
+  localToCell(x: number, z: number): [number, number] {
+    const { w, h } = this.game.level.grid;
+    return [x / TILE + (w - 1) / 2, z / TILE + (h - 1) / 2];
   }
 
   /** Sparkles at a cell (deliveries). */
@@ -152,7 +187,17 @@ export class BoardView {
     const g = this.game.level.grid;
     const base = new Mesh(new BoxGeometry(this.width + 0.024, 0.012, this.depth + 0.024), new MeshStandardMaterial({ color: COLORS.boardEdge, roughness: 0.45, metalness: 0.2 }));
     base.position.y = -0.0062;
-    const top = new Mesh(new PlaneGeometry(this.width, this.depth), new MeshStandardMaterial({ map: floorTexture(g.w, g.h), roughness: 0.85 }));
+    const top = new Mesh(new PlaneGeometry(this.width, this.depth), new MeshStandardMaterial({
+        map: warehouseFloor({
+          w: g.w,
+          h: g.h,
+          seed: this.game.level.seed,
+          walls: (g.walls ?? []).map(([x, y]) => ({ x, y })),
+          zones: (g.zones ?? []).map(([x, y]) => ({ x, y })),
+          walkways: this.game.workers.flatMap((w) => expandPath(w.def.path)).map(([x, y]) => ({ x, y })),
+        }),
+        roughness: 0.85,
+      }));
     top.rotation.x = -Math.PI / 2;
     top.position.y = 0.0001;
     // Glowing cyan edge along the player's side, so the board reads as a device on the desk.
@@ -177,7 +222,30 @@ export class BoardView {
       o.position.z = p.z;
       scenery.add(o);
     };
-    (g.walls ?? []).forEach((c, i) => put(makeShelf(i + c[0] * 31 + c[1] * 7), c));
+    const tall = new Set((g.tall ?? []).map(([x, y]) => `${x},${y}`));
+    (g.walls ?? []).forEach((c, i) => put(makeRack(i + c[0] * 31 + c[1] * 7, tall.has(`${c[0]},${c[1]}`)), c));
+    // Charging pads where robots start; bollards at the corners and walkway ends.
+    for (const r of this.game.level.robots) put(makeChargingPad(), r.start);
+    for (const w of this.game.workers) {
+      const cells = expandPath(w.def.path);
+      for (const end of [cells[0]!, cells[cells.length - 1]!]) {
+        const b = makeBollard();
+        b.position.x = TILE * 0.42;
+        b.position.z = TILE * 0.42;
+        const holder = new Group();
+        holder.add(b);
+        put(holder, end);
+      }
+    }
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const b = makeBollard();
+      b.position.set((sx * this.width) / 2 + sx * 0.009, -0.012, (sz * this.depth) / 2 + sz * 0.009);
+      scenery.add(b);
+    }
+    // Loading dock along the far edge.
+    const dock = makeDock(this.width + 0.024);
+    dock.position.set(0, -0.012, -this.depth / 2 - 0.018);
+    scenery.add(dock);
     (g.zones ?? []).forEach((c) => put(makeZoneTile(), c));
     (g.spills ?? []).forEach((c) => put(makePuddle(), c));
     this.content.add(mergeStatic(scenery));
@@ -204,7 +272,9 @@ export class BoardView {
     for (const t of this.game.tasks) {
       if (this.crates.has(t.id)) continue;
       const crate = makeFloorCrate();
+      crate.add(makeStencil('PICK', '#2b2f36'));
       const pad = makePadV2();
+      pad.add(makeStencil('DROP', '#1f7a3a'));
       const a = this.cellToLocal(t.from[0], t.from[1]);
       crate.position.x = a.x;
       crate.position.z = a.z;
@@ -221,10 +291,12 @@ export class BoardView {
       const model = makeCrewRobot(crewNameFor(r.def, i), COLORS.robot[colorIndex % COLORS.robot.length]!);
       const i0 = colorIndex;
       this.content.add(model.root);
-      const ghostMat = new MeshBasicMaterial({ color: COLORS.ghost, transparent: true, opacity: 0.85, depthWrite: false });
+      // Plans always show through racking: hiding things is for workers and spills, never for plans.
+      const ghostMat = new MeshBasicMaterial({ color: COLORS.ghost, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false });
       const ghost = new InstancedMesh(new SphereGeometry(0.0042, 8, 6), ghostMat, MAX_GHOST);
       ghost.count = 0;
       ghost.frustumCulled = false;
+      ghost.renderOrder = 4;
       this.content.add(ghost);
       const burstMat = new MeshBasicMaterial({ color: COLORS.go, transparent: true, opacity: 0, depthWrite: false });
       const burst = new Mesh(new RingGeometry(0.018, 0.022, 32), burstMat);

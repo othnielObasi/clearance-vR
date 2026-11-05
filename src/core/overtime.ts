@@ -16,6 +16,7 @@ export function overtimeLevel(seed = 7): LevelDef {
       w: 12,
       h: 8,
       walls: [[4, 2], [4, 3], [8, 4], [8, 5]],
+      tall: [[8, 4], [8, 5]],
       spills: [[5, 6], [6, 6]],
       zones: [[6, 0], [7, 0]],
     },

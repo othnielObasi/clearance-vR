@@ -452,3 +452,277 @@ export function mergeStatic(root: Group): Group {
   }
   return out;
 }
+
+// ------------------------------------------------------------------ warehouse dressing
+
+export const RACK_LOW = 0.036;
+export const RACK_TALL = 0.07;
+
+/** See-through racking for players who can't lean (accessibility "peek"). */
+export function setRackPeek(on: boolean) {
+  for (const m of rackMats) {
+    m.transparent = on;
+    m.opacity = on ? 0.18 : 1;
+    m.depthWrite = !on;
+    m.needsUpdate = true;
+  }
+}
+const rackMats = new Set<MeshStandardMaterial>();
+const rackMat = (color: number, rough = 0.5, metal = 0.3) => {
+  const m = sharedMat(color, rough, metal);
+  rackMats.add(m);
+  return m;
+};
+
+let wrapTex: Texture | undefined;
+/**
+ * Pallet racking: blue uprights, orange beams, wooden pallets with shrink-wrapped loads.
+ * Tall racks are high enough to hide what is behind them from a seated view: lean to look.
+ */
+export function makeRack(seed: number, tall: boolean): Group {
+  const g = new Group();
+  const s = TILE * 0.94;
+  const h = tall ? RACK_TALL : RACK_LOW;
+  const upright = rackMat(0x2f5fb3, 0.45, 0.4);
+  const beam = rackMat(0xf07b1a, 0.45, 0.3);
+  const wood = rackMat(0xb78a55, 0.85, 0);
+  wrapTex ??= canvasTex(64, 64, (c) => {
+    c.fillStyle = '#e9eef2';
+    c.fillRect(0, 0, 64, 64);
+    c.strokeStyle = 'rgba(255,255,255,0.9)';
+    c.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      c.beginPath();
+      c.moveTo(0, 6 + i * 11);
+      c.bezierCurveTo(20, 2 + i * 11, 40, 12 + i * 11, 64, 5 + i * 11);
+      c.stroke();
+    }
+  });
+  let r = seed * 7919 + 13;
+  const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647);
+  const loadColors = [0xc99257, 0xd8b07a, 0x8fb3d9, 0xe0c068];
+  for (const x of [-1, 1])
+    for (const z of [-1, 1]) {
+      const post = new Mesh(new BoxGeometry(0.0026, h, 0.0026), upright);
+      post.position.set((x * s) / 2, h / 2, (z * s) / 2);
+      g.add(post);
+    }
+  const levels = tall ? [0.002, 0.024, 0.046] : [0.002, 0.02];
+  levels.forEach((y) => {
+    for (const z of [-1, 1]) {
+      const b = new Mesh(new BoxGeometry(s, 0.0022, 0.0022), beam);
+      b.position.set(0, y + 0.0011, (z * s) / 2);
+      g.add(b);
+    }
+    // A wooden pallet with a wrapped load, sometimes missing (a picked slot).
+    if (rand() < 0.18) return;
+    const pallet = new Mesh(new BoxGeometry(s * 0.86, 0.0022, s * 0.86), wood);
+    pallet.position.y = y + 0.0032;
+    g.add(pallet);
+    const lh = 0.011 + rand() * 0.006;
+    const load = new Mesh(new BoxGeometry(s * 0.78, lh, s * 0.78), rackMat(loadColors[Math.floor(rand() * loadColors.length)]!, 0.7, 0));
+    load.position.y = y + 0.0043 + lh / 2;
+    g.add(load);
+    const wrap = new Mesh(new BoxGeometry(s * 0.8, lh * 0.75, s * 0.8), wrapMat());
+    wrap.position.y = y + 0.0043 + lh * 0.42;
+    g.add(wrap);
+  });
+  // Open top: just the front and back beams, like real pallet racking.
+  for (const z of [-1, 1]) {
+    const b = new Mesh(new BoxGeometry(s, 0.0022, 0.0022), beam);
+    b.position.set(0, h - 0.0011, (z * s) / 2);
+    g.add(b);
+  }
+  g.add(makeBlob(s * 1.3, s * 1.3, 0.34));
+  return g;
+}
+let wrapM: MeshStandardMaterial | undefined;
+const wrapMat = () => {
+  if (!wrapM) {
+    wrapM = new MeshStandardMaterial({ map: wrapTex!, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.55 });
+    rackMats.add(wrapM);
+  }
+  return wrapM;
+};
+
+/** Loading dock along the far edge: wall, two roller doors, bumpers and a stripe. */
+export function makeDock(width: number): Group {
+  const g = new Group();
+  const h = 0.05;
+  const wall = new Mesh(new BoxGeometry(width, h, 0.012), sharedMat(0x8d939b, 0.8));
+  wall.position.set(0, h / 2, 0);
+  g.add(wall);
+  const doorTex = canvasTex(64, 64, (c) => {
+    c.fillStyle = '#c3c9d1';
+    c.fillRect(0, 0, 64, 64);
+    c.fillStyle = 'rgba(60,70,80,0.35)';
+    for (let y = 0; y < 64; y += 6) c.fillRect(0, y, 64, 2);
+  });
+  const door = new MeshStandardMaterial({ map: doorTex, roughness: 0.5, metalness: 0.4 });
+  for (const x of [-width * 0.24, width * 0.24]) {
+    const d = new Mesh(new BoxGeometry(width * 0.2, h * 0.72, 0.002), door);
+    d.position.set(x, h * 0.36, 0.0068);
+    const frame = new Mesh(new BoxGeometry(width * 0.215, 0.003, 0.004), sharedMat(0xffc93c, 0.5));
+    frame.position.set(x, h * 0.74, 0.007);
+    g.add(d, frame);
+    for (const bx of [-1, 1]) {
+      const bumper = new Mesh(new BoxGeometry(0.004, 0.008, 0.004), sharedMat(0x1d2127, 0.8));
+      bumper.position.set(x + bx * width * 0.11, 0.008, 0.008);
+      g.add(bumper);
+    }
+  }
+  const stripe = new Mesh(new BoxGeometry(width, 0.003, 0.0125), sharedMat(0xffc93c, 0.5));
+  stripe.position.y = 0.0015;
+  g.add(stripe, makeBlob(width * 1.02, 0.03, 0.3));
+  return g;
+}
+
+let boltMat: MeshBasicMaterial | undefined;
+/** Charging pad where a robot rests between jobs. */
+export function makeChargingPad(): Group {
+  const g = new Group();
+  const pad = new Mesh(new RoundedBoxGeometry(TILE * 0.8, 0.0014, TILE * 0.8, 2, 0.003), sharedMat(0x2b2f36, 0.6));
+  pad.position.y = 0.0008;
+  boltMat ??= new MeshBasicMaterial({ map: canvasTex(64, 64, (c) => {
+    c.fillStyle = '#5ce1e6';
+    c.beginPath();
+    c.moveTo(36, 6);
+    c.lineTo(16, 36);
+    c.lineTo(30, 36);
+    c.lineTo(26, 58);
+    c.lineTo(48, 26);
+    c.lineTo(34, 26);
+    c.closePath();
+    c.fill();
+  }), transparent: true });
+  const icon = new Mesh(new PlaneGeometry(TILE * 0.36, TILE * 0.36), boltMat);
+  icon.rotation.x = -Math.PI / 2;
+  icon.position.set(0, 0.0017, TILE * 0.22);
+  g.add(pad, icon);
+  return g;
+}
+
+/** Yellow safety bollard. */
+export function makeBollard(): Group {
+  const g = new Group();
+  const post = new Mesh(new CylinderGeometry(0.0028, 0.0028, 0.016, 12), sharedMat(0xffc93c, 0.45));
+  post.position.y = 0.008;
+  const band = new Mesh(new CylinderGeometry(0.0029, 0.0029, 0.003, 12), sharedMat(0x1d2127, 0.6));
+  band.position.y = 0.011;
+  g.add(post, band, makeBlob(0.01, 0.01, 0.35));
+  return g;
+}
+
+export interface FloorPlan {
+  w: number;
+  h: number;
+  walls: { x: number; y: number }[];
+  walkways: { x: number; y: number }[];
+  zones: { x: number; y: number }[];
+  seed: number;
+}
+
+/** Warehouse floor: concrete, aisle lines along racking, green pedestrian walkways, tyre marks, safety border. */
+export function warehouseFloor(plan: FloorPlan): CanvasTexture {
+  const px = 64;
+  const { w, h } = plan;
+  return canvasTex(w * px, h * px, (g) => {
+    g.fillStyle = '#d6d1c7';
+    g.fillRect(0, 0, w * px, h * px);
+    let seed = plan.seed || 1234;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // Concrete: speckle and slab seams every two tiles.
+    for (let i = 0; i < w * h * 70; i++) {
+      g.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.28)';
+      g.fillRect(rand() * w * px, rand() * h * px, 2, 2);
+    }
+    g.strokeStyle = 'rgba(100,92,80,0.28)';
+    g.lineWidth = 2;
+    for (let x = 0; x <= w; x += 2) {
+      g.beginPath();
+      g.moveTo(x * px, 0);
+      g.lineTo(x * px, h * px);
+      g.stroke();
+    }
+    for (let y = 0; y <= h; y += 2) {
+      g.beginPath();
+      g.moveTo(0, y * px);
+      g.lineTo(w * px, y * px);
+      g.stroke();
+    }
+    // Faint tyre marks along the busiest lanes.
+    g.strokeStyle = 'rgba(40,36,30,0.08)';
+    g.lineWidth = 5;
+    for (let i = 0; i < 6; i++) {
+      const y = (1 + Math.floor(rand() * (h - 2)) + 0.5) * px;
+      g.beginPath();
+      g.moveTo(0, y + (rand() - 0.5) * 10);
+      g.bezierCurveTo(w * px * 0.3, y + (rand() - 0.5) * 30, w * px * 0.7, y + (rand() - 0.5) * 30, w * px, y + (rand() - 0.5) * 10);
+      g.stroke();
+    }
+    // Green pedestrian walkways with white edges where workers walk.
+    for (const c of plan.walkways) {
+      g.fillStyle = 'rgba(46,160,90,0.55)';
+      g.fillRect(c.x * px + 6, c.y * px, px - 12, px);
+      g.fillStyle = 'rgba(255,255,255,0.85)';
+      g.fillRect(c.x * px + 4, c.y * px, 3, px);
+      g.fillRect(c.x * px + px - 7, c.y * px, 3, px);
+      // Footprint marks
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      g.beginPath();
+      g.ellipse(c.x * px + px * 0.42, c.y * px + px * 0.35, 4, 7, 0, 0, Math.PI * 2);
+      g.ellipse(c.x * px + px * 0.58, c.y * px + px * 0.65, 4, 7, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    // Yellow aisle lines on open floor beside racking.
+    const isWall = (x: number, y: number) => plan.walls.some((c) => c.x === x && c.y === y);
+    g.fillStyle = '#e9b415';
+    for (const c of plan.walls) {
+      const x0 = c.x * px;
+      const y0 = c.y * px;
+      if (!isWall(c.x, c.y - 1)) g.fillRect(x0 + 2, y0 - 5, px - 4, 4);
+      if (!isWall(c.x, c.y + 1)) g.fillRect(x0 + 2, y0 + px + 1, px - 4, 4);
+      if (!isWall(c.x - 1, c.y)) g.fillRect(x0 - 5, y0 + 2, 4, px - 4);
+      if (!isWall(c.x + 1, c.y)) g.fillRect(x0 + px + 1, y0 + 2, 4, px - 4);
+    }
+    // Yellow-black safety border.
+    const b = 10;
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, w * px, h * px);
+    g.rect(b, b, w * px - 2 * b, h * px - 2 * b);
+    g.clip('evenodd');
+    g.fillStyle = '#ffc93c';
+    g.fillRect(0, 0, w * px, h * px);
+    g.strokeStyle = '#2b2f36';
+    g.lineWidth = 7;
+    for (let i = -h * px; i < w * px + h * px; i += 22) {
+      g.beginPath();
+      g.moveTo(i, 0);
+      g.lineTo(i + h * px, h * px);
+      g.stroke();
+    }
+    g.restore();
+  });
+}
+
+/** Small floor stencil (PICK / DROP) under crates and on drop pads. */
+const stencilCache = new Map<string, MeshBasicMaterial>();
+export function makeStencil(text: string, color: string): Mesh {
+  let m = stencilCache.get(text + color);
+  if (!m) {
+    const tex = canvasTex(128, 48, (c) => {
+      c.fillStyle = color;
+      c.font = 'bold 34px system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(text, 64, 26);
+    });
+    m = new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    stencilCache.set(text + color, m);
+  }
+  const mesh = new Mesh(new PlaneGeometry(TILE * 0.62, TILE * 0.23), m);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(0, 0.0012, TILE * 0.3);
+  return mesh;
+}

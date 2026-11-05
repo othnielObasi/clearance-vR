@@ -27,7 +27,7 @@ import { CREW, type CrewMemory, type CrewName, crewNameFor, emptyMemory } from '
 import { generateDaily } from '../core/daily';
 import { OvertimeDirector, overtimeLevel } from '../core/overtime';
 import { DebugPanel } from '../xr/debug-panel';
-import { makePreviewRoom } from '../xr/look';
+import { makePreviewRoom, setRackPeek } from '../xr/look';
 import { DeskAnchor } from '../xr/anchor';
 import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
@@ -122,6 +122,14 @@ export class ClearanceApp {
   private nextBtn?: Button;
   private retryBtn?: Button;
   private pauseBtn?: Button;
+  private peekBtn?: Button;
+  /** See-through racking, for players who can't lean (accessibility). */
+  peek = false;
+  private handHold = 0;
+  /** Hands currently resting flat on the board act as a wall, never as a stop gesture. */
+  private flatOnBoard = { left: false, right: false };
+  /** Desktop/testing: pretend a flat hand rests over this cell. */
+  debugHand: [number, number] | null = null;
   private resumeBtn?: Button;
   private exitBtn?: Button;
   /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
@@ -246,18 +254,26 @@ export class ClearanceApp {
 
     this.pauseBtn = this.addButton('⏸', 0x5b6573, () => this.togglePause(), 0.026);
     this.pauseBtn.mesh.position.set(-leftX + 0.045, 0.02, nearZ + 0.004);
+    if ((level.grid.tall ?? []).length) {
+      this.peekBtn = this.addButton('👁', 0x5b6573, () => {
+        this.peek = !this.peek;
+        setRackPeek(this.peek);
+      }, 0.026);
+      this.peekBtn.mesh.position.set(-leftX + 0.045, 0.02, nearZ - 0.04);
+    } else this.peekBtn = undefined;
+    setRackPeek(this.peek);
     this.resumeBtn = this.addButton('▶', COLORS.go, () => this.togglePause(), 0.04);
-    this.resumeBtn.mesh.position.set(0.05, 0.05, farZ - 0.01);
+    this.resumeBtn.mesh.position.set(0.05, 0.068, farZ - 0.004);
     this.exitBtn = this.addButton('⏏', 0x5b6573, () => {
       this.userPaused = false;
       this.world.exitXR();
     }, 0.032);
-    this.exitBtn.mesh.position.set(0, 0.05, farZ - 0.01);
+    this.exitBtn.mesh.position.set(0, 0.068, farZ - 0.004);
 
     this.nextBtn = this.addButton('▶', COLORS.go, () => this.loadLevel(this.levelIndex + 1), 0.04);
-    this.nextBtn.mesh.position.set(0.05, 0.05, farZ - 0.01);
+    this.nextBtn.mesh.position.set(0.05, 0.068, farZ - 0.004);
     this.retryBtn = this.addButton('↻', 0x5b6573, () => (this.mode === 'daily' ? this.loadDaily() : this.loadLevel(this.levelIndex)), 0.04);
-    this.retryBtn.mesh.position.set(-0.05, 0.05, farZ - 0.01);
+    this.retryBtn.mesh.position.set(-0.05, 0.068, farZ - 0.004);
 
     this.game.robots.forEach((r) => this.ensureRobotUI(r.id));
     // Bolt remembers being let through: he starts bold.
@@ -500,6 +516,7 @@ export class ClearanceApp {
     this.updatePalmMenu(dt);
     if (!paused) {
       this.handleGestures(dt);
+      this.updateHandWall(dt);
       this.updateSlowMotion(dt);
       if (this.director) {
         this.director.step(this.game);
@@ -510,6 +527,7 @@ export class ClearanceApp {
     }
     for (const e of this.game.drainEvents()) this.onGameEvent(e);
     this.coach.update(dt);
+    if ((this.level.grid.tall ?? []).length && this.game.time > 6) this.coach.tip('lean');
     this.view.update(dt, this.clock);
     this.updateTokens(dt);
     this.updateButtons();
@@ -628,6 +646,43 @@ export class ClearanceApp {
     this.anchorHere();
   }
 
+  /**
+   * Your hand is a wall: an open hand resting palm-down just above the board blocks the
+   * cells under it. Waiting robots replan round it; moving robots wait for it.
+   */
+  private updateHandWall(dt: number) {
+    const cells: [number, number][] = [];
+    const { w, h } = this.game.level.grid;
+    const addAround = (cx: number, cy: number) => {
+      for (let y = Math.floor(cy - 1.2); y <= Math.ceil(cy + 1.2); y++)
+        for (let x = Math.floor(cx - 1.2); x <= Math.ceil(cx + 1.2); x++) {
+          if (x < 0 || y < 0 || x >= w || y >= h) continue;
+          if ((x - cx) ** 2 + (y - cy) ** 2 <= 1.1 * 1.1 && !cells.some((c) => c[0] === x && c[1] === y)) cells.push([x, y]);
+        }
+    };
+    let flat = false;
+    for (const hand of [this.tracker.hands.left, this.tracker.hands.right]) {
+      this.flatOnBoard[hand.side] = false;
+      if (!hand.tracked || !hand.open || hand.pinching || hand.palmNormal.y > -0.6) continue;
+      const local = this.view.content.worldToLocal(hand.palm.clone());
+      if (local.y < 0.004 || local.y > 0.06) continue;
+      const [cx, cy] = this.view.localToCell(local.x, local.z);
+      if (cx < -0.5 || cy < -0.5 || cx > w - 0.5 || cy > h - 0.5) continue;
+      flat = true;
+      this.flatOnBoard[hand.side] = true;
+      addAround(cx, cy);
+    }
+    if (this.debugHand) {
+      flat = true;
+      addAround(this.debugHand[0], this.debugHand[1]);
+    }
+    // A short hold filters out hands passing over the board on the way to a permit.
+    this.handHold = flat ? this.handHold + dt : 0;
+    const active = this.handHold > 0.15 || (!!this.debugHand && flat);
+    this.game.setBlockers(active ? cells : []);
+    this.view.setHandCells(active ? cells : []);
+  }
+
   /** Half a second of slow motion when a moving robot is about to reach a worker: time to react, and drama. */
   private updateSlowMotion(dt: number) {
     const g = this.game;
@@ -689,6 +744,12 @@ export class ClearanceApp {
         break;
       case 'rejected':
         this.sfx.voice(this.crewOf(e.robot), e.trap ? 'caught' : 'indignant', this.posOf(e.robot));
+        break;
+      case 'held':
+        this.sfx.voice(this.crewOf(e.robot), 'hesitant', this.posOf(e.robot));
+        break;
+      case 'rerouted':
+        this.sfx.voice(this.crewOf(e.robot), 'honest', this.posOf(e.robot));
         break;
       case 'stopped':
         if (e.wasMoving) {
@@ -772,7 +833,7 @@ export class ClearanceApp {
       const ring = this.palmRings[h.side];
       // One open palm facing a robot: stop that robot.
       let target: string | null = null;
-      if (h.tracked && h.open && !bothUp) {
+      if (h.tracked && h.open && !bothUp && !this.flatOnBoard[h.side]) {
         let bestDot = GESTURE.palmConeCos;
         for (const r of this.game.robots) {
           if (r.state !== 'executing' && r.state !== 'proposed') continue;
@@ -894,6 +955,7 @@ export class ClearanceApp {
     if (p) for (const panel of this.panels.values()) panel.grant.mesh.visible = panel.reject.mesh.visible = panel.stop.mesh.visible = false;
     if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing && !p;
     if (this.pauseBtn) this.pauseBtn.mesh.visible = playing && !p;
+    if (this.peekBtn) this.peekBtn.mesh.visible = playing && !p;
     if (this.resumeBtn) this.resumeBtn.mesh.visible = playing && p;
     if (this.exitBtn) this.exitBtn.mesh.visible = p && !!this.world.session;
     const ended = this.game.status !== 'playing';
