@@ -113,6 +113,16 @@ export class ClearanceApp {
   private stopAllBtn?: Button;
   private nextBtn?: Button;
   private retryBtn?: Button;
+  private pauseBtn?: Button;
+  private resumeBtn?: Button;
+  private exitBtn?: Button;
+  /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
+  private palmBtn!: Button;
+  private palmSide: 'left' | 'right' | null = null;
+  private palmShownUntil = 0;
+  private holdPalmUp = { left: new HoldTimer(), right: new HoldTimer() };
+  /** Paused by the player (the headset sleeping pauses separately). */
+  userPaused = false;
   private holdHand = { left: new HoldTimer(), right: new HoldTimer() };
   private holdBoth = new HoldTimer();
   private palmRings: Record<'left' | 'right', Mesh>;
@@ -141,6 +151,13 @@ export class ClearanceApp {
     this.handle.addComponent(OneHandGrabbable, { rotate: false, translate: true });
     // Desktop preview position; re-placed relative to the head when XR starts.
     this.handle.object3D!.position.set(0, 0.9, -0.32);
+
+    const palmMesh = makeButton('⏸', 0x5b6573, 0.03);
+    const palmEntity = world.createTransformEntity(palmMesh, { persistent: true });
+    palmEntity.addComponent(RayInteractable);
+    palmEntity.addComponent(PokeInteractable);
+    palmMesh.visible = false;
+    this.palmBtn = { entity: palmEntity, mesh: palmMesh, action: () => this.togglePause(), pressedAt: -1 };
 
     this.levelIndex = Math.min(loadProgress().unlocked, LEVELS.length - 1);
     this.loadLevel(this.levelIndex);
@@ -171,7 +188,16 @@ export class ClearanceApp {
     this.start(overtimeLevel());
   }
 
+  togglePause() {
+    if (this.game.status !== 'playing') return;
+    this.userPaused = !this.userPaused;
+    this.palmShownUntil = 0;
+    this.coach.say(this.userPaused ? '' : 'Back on shift.', 1.5);
+    this.sfx.pick();
+  }
+
   private start(level: LevelDef) {
+    this.userPaused = false;
     this.flushCrew();
     this.clearLevel();
     if (this.mode !== 'overtime') this.director = undefined;
@@ -202,6 +228,16 @@ export class ClearanceApp {
 
     this.stopAllBtn = this.addButton('■', COLORS.stop, () => this.stopAll(), 0.026);
     this.stopAllBtn.mesh.position.set(leftX - 0.045, 0.02, nearZ + 0.004);
+
+    this.pauseBtn = this.addButton('⏸', 0x5b6573, () => this.togglePause(), 0.026);
+    this.pauseBtn.mesh.position.set(-leftX + 0.045, 0.02, nearZ + 0.004);
+    this.resumeBtn = this.addButton('▶', COLORS.go, () => this.togglePause(), 0.04);
+    this.resumeBtn.mesh.position.set(0.05, 0.05, farZ - 0.01);
+    this.exitBtn = this.addButton('⏏', 0x5b6573, () => {
+      this.userPaused = false;
+      this.world.exitXR();
+    }, 0.032);
+    this.exitBtn.mesh.position.set(0, 0.05, farZ - 0.01);
 
     this.nextBtn = this.addButton('▶', COLORS.go, () => this.loadLevel(this.levelIndex + 1), 0.04);
     this.nextBtn.mesh.position.set(0.05, 0.05, farZ - 0.01);
@@ -376,7 +412,7 @@ export class ClearanceApp {
   }
 
   onPress(entity: Entity) {
-    const b = this.buttons.get(entity.index);
+    const b = entity === this.palmBtn.entity ? this.palmBtn : this.buttons.get(entity.index);
     if (!b || !b.mesh.visible || this.clock - b.pressedAt < 0.35) return;
     b.pressedAt = this.clock;
     b.action();
@@ -414,12 +450,13 @@ export class ClearanceApp {
     if (this.wasInXR && !inXR) this.onExitXR?.();
     this.wasInXR = inXR;
     // Pause cleanly when the headset sleeps or a system menu opens.
-    const paused = inXR && this.world.visibilityState.value !== VisibilityState.Visible;
+    const paused = this.userPaused || (inXR && this.world.visibilityState.value !== VisibilityState.Visible);
 
     this.placeBoard();
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
 
     this.view.hands = (['left', 'right'] as const).filter((s) => this.tracker.hands[s].tracked).map((s) => this.tracker.hands[s].indexTip);
+    this.updatePalmMenu(dt);
     if (!paused) {
       this.handleGestures(dt);
       this.updateSlowMotion(dt);
@@ -602,6 +639,30 @@ export class ClearanceApp {
     }
   }
 
+  /** One upturned open palm (not both) for a moment shows a pause button floating above it. */
+  private updatePalmMenu(dt: number) {
+    const { left, right } = this.tracker.hands;
+    const up = (h: typeof left) => h.tracked && h.open && h.palmNormal.y > GESTURE.palmUpY;
+    const both = up(left) && up(right);
+    for (const h of [left, right]) {
+      const hold = this.holdPalmUp[h.side].step(up(h) && !both, 'menu', dt, 0.4);
+      if (hold.fire && this.game.status === 'playing') {
+        this.palmSide = h.side;
+        this.palmShownUntil = this.clock + 4;
+      }
+    }
+    const side = this.palmSide;
+    const show = !!side && this.clock < this.palmShownUntil && this.tracker.hands[side].tracked && !both;
+    this.palmBtn.mesh.visible = show;
+    if (show && side) {
+      const h = this.tracker.hands[side];
+      if (up(h)) this.palmShownUntil = Math.max(this.palmShownUntil, this.clock + 0.6);
+      const m = this.palmBtn.mesh;
+      m.position.copy(h.palm).addScaledVector(h.palmNormal, 0.07);
+      m.lookAt(this.world.player.head.getWorldPosition(this.tmp));
+    }
+  }
+
   private handleGestures(dt: number) {
     const { left, right } = this.tracker.hands;
     this.flickCooldown -= dt;
@@ -733,11 +794,16 @@ export class ClearanceApp {
       panel.reject.mesh.position.set(base.x + 0.014, 0.052, base.z);
       panel.stop.mesh.position.set(base.x, 0.052, base.z);
     }
-    if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing;
+    const p = this.userPaused;
+    if (p) for (const panel of this.panels.values()) panel.grant.mesh.visible = panel.reject.mesh.visible = panel.stop.mesh.visible = false;
+    if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing && !p;
+    if (this.pauseBtn) this.pauseBtn.mesh.visible = playing && !p;
+    if (this.resumeBtn) this.resumeBtn.mesh.visible = playing && p;
+    if (this.exitBtn) this.exitBtn.mesh.visible = p && !!this.world.session;
     const ended = this.game.status !== 'playing';
     if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign';
     if (this.retryBtn && this.mode === 'overtime') this.retryBtn.action = () => this.loadOvertime();
-    if (this.retryBtn) this.retryBtn.mesh.visible = ended;
+    if (this.retryBtn) this.retryBtn.mesh.visible = ended || p;
   }
 
   private drawHud() {
@@ -751,7 +817,7 @@ export class ClearanceApp {
       target: level.win.deliveries,
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held').length,
       timeLeft: g.timeLeft,
-      message: g.status === 'playing' ? this.coach.message : verdictLine(g.calibration()),
+      message: g.status !== 'playing' ? verdictLine(g.calibration()) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
       calibration: g.status === 'playing' ? undefined : g.calibration(),
       stars: g.status === 'won' ? g.score().stars : 0,
       result: g.status === 'playing' ? undefined : g.status,

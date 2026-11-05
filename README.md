@@ -15,6 +15,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Stop one robot | Open palm facing the robot, hold briefly | Press ■ above the robot |
 | Stop everything | Both palms up, hold briefly | Press the red ■ on the dispenser |
 | Move the board | Pinch the cyan handle at the near edge | — |
+| Pause | Turn one hand palm-up; poke the pause button that appears above it | Press ⏸ at the near-right corner |
 
 Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
 

@@ -197,13 +197,46 @@ function iconTexture(icon: string, color: number): CanvasTexture {
   g.arc(64, 64, 64, 0, Math.PI * 2);
   g.fill();
   g.fillStyle = '#ffffff';
-  g.font = 'bold 84px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(icon, 64, 70);
+  // Draw common controls as shapes so they look the same whatever fonts the headset browser has.
+  if (!drawShapeIcon(g, icon)) {
+    g.font = 'bold 84px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(icon, 64, 70);
+  }
   const t = new CanvasTexture(c);
   t.colorSpace = SRGBColorSpace;
   return t;
+}
+
+function drawShapeIcon(g: CanvasRenderingContext2D, icon: string): boolean {
+  g.beginPath();
+  switch (icon) {
+    case '⏸':
+      g.fillRect(40, 34, 18, 60);
+      g.fillRect(70, 34, 18, 60);
+      return true;
+    case '▶':
+      g.moveTo(46, 32);
+      g.lineTo(96, 64);
+      g.lineTo(46, 96);
+      g.closePath();
+      g.fill();
+      return true;
+    case '■':
+      g.fillRect(38, 38, 52, 52);
+      return true;
+    case '⏏':
+      g.moveTo(64, 30);
+      g.lineTo(98, 70);
+      g.lineTo(30, 70);
+      g.closePath();
+      g.fill();
+      g.fillRect(30, 80, 68, 14);
+      return true;
+    default:
+      return false;
+  }
 }
 
 let hatch: CanvasTexture | undefined;
