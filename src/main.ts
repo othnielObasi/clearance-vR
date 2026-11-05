@@ -19,7 +19,7 @@ async function boot() {
     xr: {
       sessionMode: SessionMode.ImmersiveAR,
       referenceSpace: { type: ReferenceSpaceType.LocalFloor, fallbackOrder: [ReferenceSpaceType.Local] },
-      features: { handTracking: { required: false }, hitTest: false, planeDetection: false, anchors: false },
+      features: { handTracking: { required: false }, hitTest: { required: false }, anchors: { required: false }, planeDetection: false },
       offer: 'none',
     },
     render: { near: 0.01, far: 20, camera: { position: [0, 1.21, 0.04], lookAt: [0, 0.89, -0.5] } },

@@ -18,6 +18,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Quaternion,
   RingGeometry,
   Vector3,
 } from 'three';
@@ -27,6 +28,7 @@ import { generateDaily } from '../core/daily';
 import { OvertimeDirector, overtimeLevel } from '../core/overtime';
 import { DebugPanel } from '../xr/debug-panel';
 import { makePreviewRoom } from '../xr/look';
+import { DeskAnchor } from '../xr/anchor';
 import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
@@ -89,6 +91,8 @@ export class ClearanceApp {
   private hitUntil = 0;
   /** Desk and room shown only in the desktop preview; passthrough replaces it in the headset. */
   private room = makePreviewRoom();
+  /** Locks the board to the real desk (spatial anchor), and remembers the spot where supported. */
+  private deskAnchor = new DeskAnchor();
   level!: LevelDef;
   private dailyLabel = '';
   private dailyKey = '';
@@ -286,6 +290,16 @@ export class ClearanceApp {
     });
   }
 
+  private crewOf(robotId: string): CrewName {
+    const r = this.game.robot(robotId)!;
+    return crewNameFor(r.def, this.game.robots.indexOf(r));
+  }
+
+  /** World position of a robot, for spatial sound. */
+  private posOf(robotId: string) {
+    return this.view.robotWorld(robotId, new Vector3());
+  }
+
   private tally(robotId: string): CrewMemory {
     const r = this.game.robot(robotId)!;
     const name = crewNameFor(r.def, this.game.robots.indexOf(r));
@@ -352,6 +366,8 @@ export class ClearanceApp {
     this.handle.object3D!.position.set(hp.x + dir.x * (BOARD_FORWARD - 0.2), hp.y - BOARD_BELOW, hp.z + dir.z * (BOARD_FORWARD - 0.2));
     this.handle.object3D!.rotation.set(0, this.boardYaw, 0);
     this.placedInXR = true;
+    const session = this.world.session;
+    if (session) void this.deskAnchor.restore(session);
     void this.startDeskSnap();
   }
 
@@ -373,7 +389,8 @@ export class ClearanceApp {
   }
 
   private rejectRobot(id: string) {
-    if (this.game.reject(id)) this.sfx.reject();
+    const at = this.posOf(id);
+    if (this.game.reject(id)) this.sfx.reject(at);
   }
 
   /** Poke/click alternative to handing over a token: uses a held permit, or takes a new one. */
@@ -390,7 +407,10 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ grab and press callbacks
 
   onGrab(entity: Entity) {
-    if (entity === this.handle) return;
+    if (entity === this.handle) {
+      this.deskAnchor.clear();
+      return;
+    }
     const t = this.tokens.find((x) => x.entity === entity);
     if (!t || t.permitId) return;
     const p = this.game.dispensePermit();
@@ -403,6 +423,7 @@ export class ClearanceApp {
   onRelease(entity: Entity) {
     if (entity === this.handle) {
       this.boardYaw = this.yawTowardHead(this.handle.object3D!.position);
+      if (this.world.session) this.deskAnchor.place(this.handle.object3D!.position, this.boardYaw);
       return;
     }
     const t = this.tokens.find((x) => x.entity === entity);
@@ -457,7 +478,11 @@ export class ClearanceApp {
     this.clock += dt;
     const inXR = !!this.world.session;
     if (inXR && !this.placedInXR && this.world.visibilityState.value === VisibilityState.Visible) this.placeInFrontOfHead();
-    if (!inXR) this.placedInXR = false;
+    if (!inXR && this.placedInXR) {
+      this.placedInXR = false;
+      this.deskAnchor = new DeskAnchor(); // anchors belong to the ended session; the saved spot stays
+    }
+    if (inXR) this.followAnchor(frame, ref);
     if (this.wasInXR && !inXR) this.onExitXR?.();
     this.wasInXR = inXR;
     // Pause cleanly when the headset sleeps or a system menu opens.
@@ -491,6 +516,27 @@ export class ClearanceApp {
     this.updateBubbles();
     this.drawHud();
     this.updateDebug(dt);
+    this.updateAudio(paused);
+  }
+
+  /** Listener follows the head; music builds with how much is happening. */
+  private updateAudio(paused: boolean) {
+    const head = this.world.player.head;
+    head.updateMatrixWorld();
+    const pos = head.getWorldPosition(this.tmp);
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(head.getWorldQuaternion(new Quaternion()));
+    const up = new Vector3(0, 1, 0).applyQuaternion(head.getWorldQuaternion(new Quaternion()));
+    this.sfx.setListener(pos, fwd, up);
+    const g = this.game;
+    let i = 0.2;
+    if (g.status === 'playing') {
+      i += Math.min(0.45, g.robots.filter((r) => r.state === 'proposed').length * 0.15);
+      if (Number.isFinite(g.timeLeft) && g.timeLeft < 20) i += 0.3;
+      if (this.timeScale < 0.9) i += 0.3;
+      if (this.mode === 'overtime') i += Math.min(0.3, g.stats.deliveries * 0.02);
+    } else i = 0.12;
+    this.sfx.setIntensity(i);
+    this.sfx.setPaused(paused);
   }
 
   private updateDebug(dt: number) {
@@ -520,7 +566,7 @@ export class ClearanceApp {
   /** Look for the real desk just after entering XR and rest the board on it. */
   private async startDeskSnap() {
     const session = this.world.session;
-    if (!session || !('XRRay' in window)) return;
+    if (!session || !('XRRay' in window)) return this.anchorHere();
     try {
       const viewer = await session.requestReferenceSpace('viewer');
       this.hitSource = await session.requestHitTestSource?.({
@@ -528,9 +574,30 @@ export class ClearanceApp {
         offsetRay: new XRRay({ x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: -0.75, z: -0.66, w: 0 }),
       });
       this.hitUntil = this.clock + 3;
+      if (!this.hitSource) this.anchorHere();
     } catch {
       this.hitSource = undefined; // hit-test not granted: keep the head-relative placement
+      this.anchorHere();
     }
+  }
+
+  /** The board follows its spatial anchor unless the player is moving it by hand. */
+  private followAnchor(frame: XRFrame | null, ref: XRReferenceSpace | null) {
+    const a = this.deskAnchor.update(frame, ref, this.world.player.matrixWorld as Matrix4);
+    if (!a || this.handle.hasComponent(Grabbed)) return;
+    if (this.deskAnchor.restored && this.hitSource) {
+      // Restored last session's spot: no need to search for the desk again.
+      this.hitSource.cancel();
+      this.hitSource = undefined;
+      this.coach.say('Board is where you left it.', 2.5);
+    }
+    this.handle.object3D!.position.copy(a.pos);
+    this.boardYaw = a.yaw;
+  }
+
+  /** Anchor the board where it is now (after the desk search finishes). */
+  private anchorHere() {
+    if (this.world.session && !this.deskAnchor.tracking) this.deskAnchor.place(this.handle.object3D!.position, this.boardYaw);
   }
 
   private updateDeskSnap() {
@@ -540,6 +607,7 @@ export class ClearanceApp {
     if (this.clock > this.hitUntil || !frame || !ref) {
       this.hitSource.cancel();
       this.hitSource = undefined;
+      this.anchorHere();
       return;
     }
     const hit = frame.getHitTestResults(this.hitSource)[0]?.getPose(ref);
@@ -557,6 +625,7 @@ export class ClearanceApp {
     this.coach.say('Board placed on your desk.', 2.5);
     this.hitSource.cancel();
     this.hitSource = undefined;
+    this.anchorHere();
   }
 
   /** Half a second of slow motion when a moving robot is about to reach a worker: time to react, and drama. */
@@ -612,30 +681,36 @@ export class ClearanceApp {
     }
     switch (e.type) {
       case 'proposed':
-        this.sfx.propose();
+        this.sfx.voice(this.crewOf(e.robot), e.mood, this.posOf(e.robot));
         break;
       case 'granted':
-        this.sfx.grant();
+        this.sfx.grant(this.posOf(e.robot));
         this.view.pop(e.robot);
+        break;
+      case 'rejected':
+        this.sfx.voice(this.crewOf(e.robot), e.trap ? 'caught' : 'indignant', this.posOf(e.robot));
         break;
       case 'stopped':
         if (e.wasMoving) {
           this.view.brake(e.robot);
           this.view.puff(e.robot);
-          this.sfx.brake();
+          this.sfx.brake(this.posOf(e.robot));
+          this.sfx.voice(this.crewOf(e.robot), e.needed ? 'thanks' : 'indignant', this.posOf(e.robot));
         }
         break;
       case 'refused':
         this.sfx.refuse();
         break;
       case 'delivered': {
-        this.sfx.deliver();
+        this.sfx.deliver(this.posOf(e.robot));
+        this.sfx.voice(this.crewOf(e.robot), 'happy', this.posOf(e.robot));
         const t = this.game.tasks.find((x) => x.id === e.task);
         if (t) this.view.sparkle(t.to);
         break;
       }
       case 'incident': {
-        this.sfx.incident();
+        this.sfx.incident(this.posOf(e.robot));
+        this.sfx.voice(this.crewOf(e.robot), 'oops', this.posOf(e.robot));
         this.view.flash(e.robot);
         this.view.puff(e.robot, 0xff6b3d);
         const r = this.game.robot(e.robot);
