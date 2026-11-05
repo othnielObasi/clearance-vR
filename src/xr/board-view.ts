@@ -9,6 +9,7 @@ import {
   MeshStandardMaterial,
   PlaneGeometry,
   Quaternion,
+  RingGeometry,
   SphereGeometry,
   Vector3,
 } from 'three';
@@ -43,6 +44,12 @@ interface RobotView {
   heading: number;
   flash: number;
   colorIndex: number;
+  /** 1 → 0 after a grant: squash-and-stretch salute plus a green burst ring. */
+  pop: number;
+  /** 1 → 0 after a hard stop: tips forward like braking. */
+  brake: number;
+  burst: Mesh;
+  burstMat: MeshBasicMaterial;
 }
 
 /**
@@ -53,7 +60,11 @@ export class BoardView {
   readonly root = new Group();
   readonly content = new Group();
   readonly robots = new Map<string, RobotView>();
-  private workers: { root: Group; figure: Group; zone: Mesh; bounce: number }[] = [];
+  private workers: { root: Group; figure: Group; zone: Mesh; bounce: number; waveCooldown: number }[] = [];
+  /** 0 → 1 as the board unfolds from the desk after loading. */
+  private unfold = 0;
+  /** World positions of tracked fingertips, set each frame by the app. */
+  hands: Vector3[] = [];
   private crates = new Map<string, Mesh>();
   private pads = new Map<string, Mesh>();
   private m = new Matrix4();
@@ -87,6 +98,16 @@ export class BoardView {
   /** World positions of the ghost path dots of a robot. */
   pathWorld(r: Robot): Vector3[] {
     return this.game.remainingPath(r).map((c) => this.root.localToWorld(this.cellToLocal(c[0], c[1]).setY(0.004)));
+  }
+
+  pop(robotId: string) {
+    const v = this.robots.get(robotId);
+    if (v) v.pop = 1;
+  }
+
+  brake(robotId: string) {
+    const v = this.robots.get(robotId);
+    if (v) v.brake = 1;
   }
 
   flash(robotId: string) {
@@ -158,7 +179,12 @@ export class BoardView {
       ghost.count = 0;
       ghost.frustumCulled = false;
       this.content.add(ghost);
-      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i });
+      const burstMat = new MeshBasicMaterial({ color: COLORS.go, transparent: true, opacity: 0, depthWrite: false });
+      const burst = new Mesh(new RingGeometry(0.018, 0.022, 32), burstMat);
+      burst.rotation.x = -Math.PI / 2;
+      burst.position.y = 0.002;
+      model.root.add(burst);
+      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i, pop: 0, brake: 0, burst, burstMat });
     });
 
     for (const w of this.game.workers) {
@@ -172,12 +198,17 @@ export class BoardView {
       zone.position.y = 0.0006;
       root.add(zone);
       this.content.add(root);
-      this.workers.push({ root, figure, zone, bounce: 0 });
+      this.workers.push({ root, figure, zone, bounce: 0, waveCooldown: 0 });
     }
   }
 
   update(dt: number, time: number) {
     const game = this.game;
+    if (this.unfold < 1) {
+      this.unfold = Math.min(1, this.unfold + dt / 0.7);
+      const e = 1 - Math.pow(1 - this.unfold, 3);
+      this.content.scale.set(0.3 + 0.7 * e, 1, Math.max(0.02, e));
+    }
     // Crates follow task state: on the floor, on a robot, or gone.
     for (const t of game.tasks) {
       const crate = this.crates.get(t.id)!;
@@ -197,6 +228,18 @@ export class BoardView {
       const dz = p.z - prev.z;
       if (dx * dx + dz * dz > 1e-8) v.heading = Math.atan2(-dx, -dz);
       prev.copy(p);
+      // A robot that isn't driving turns to look at a hand reaching toward it.
+      if (r.state !== 'executing') {
+        for (const h of this.hands) {
+          const local = this.content.worldToLocal(this.v.copy(h));
+          const hx = local.x - p.x;
+          const hz = local.z - p.z;
+          if (hx * hx + hz * hz < 0.15 * 0.15 && hx * hx + hz * hz > 1e-6) {
+            v.heading = Math.atan2(-hx, -hz);
+            break;
+          }
+        }
+      }
       const cur = v.model.root.rotation.y;
       let d = v.heading - cur;
       d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -213,6 +256,16 @@ export class BoardView {
       v.model.haloMat.opacity = Math.max(stopped, v.flash);
       v.model.root.position.y = r.state === 'proposed' ? 0.0015 * Math.abs(Math.sin(time * 5)) : 0;
 
+      v.pop = Math.max(0, v.pop - dt * 2.2);
+      const sq = Math.sin(v.pop * Math.PI * 2) * 0.25 * v.pop;
+      v.model.body.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
+      v.model.root.position.y += 0.008 * Math.sin(v.pop * Math.PI);
+      v.burstMat.opacity = v.pop * 0.9;
+      v.burst.scale.setScalar(1 + (1 - v.pop) * 1.8);
+
+      v.brake = Math.max(0, v.brake - dt * 3);
+      v.model.root.rotation.x = -0.35 * Math.sin(v.brake * Math.PI);
+
       this.updateGhost(r, v, time);
     }
 
@@ -223,6 +276,15 @@ export class BoardView {
       const dx = w.pos[0] - w.prev[0];
       const dy = w.pos[1] - w.prev[1];
       if (dx || dy) view.figure.rotation.y = Math.atan2(-dx, -dy);
+      // Workers hop and look up when a hand comes close.
+      view.waveCooldown -= dt;
+      if (view.waveCooldown <= 0) {
+        const wp = view.root.getWorldPosition(this.v);
+        if (this.hands.some((h) => h.distanceTo(wp) < 0.08)) {
+          view.bounce = 0.7;
+          view.waveCooldown = 2.5;
+        }
+      }
       view.bounce = Math.max(0, view.bounce - dt * 2);
       view.figure.position.y = 0.012 * Math.sin(view.bounce * Math.PI);
       view.figure.position.y += 0.0008 * Math.abs(Math.sin(time * 10)); // walk bob

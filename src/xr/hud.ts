@@ -1,3 +1,4 @@
+import type { Calibration } from '../core/game';
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
 
 export interface HudState {
@@ -9,6 +10,7 @@ export interface HudState {
   message: string;
   stars?: number;
   result?: 'won' | 'lost';
+  calibration?: Calibration;
 }
 
 const W = 1024;
@@ -52,10 +54,28 @@ export class Hud {
     if (s.result) {
       g.font = '700 64px system-ui, sans-serif';
       g.fillStyle = s.result === 'won' ? '#3fb950' : '#ff6b6b';
-      g.fillText(s.result === 'won' ? 'Shift complete' : 'Shift over', 44, 170);
+      g.fillText(s.result === 'won' ? 'Shift complete' : 'Shift over', 44, 150);
       g.font = '64px system-ui, sans-serif';
       g.fillStyle = '#ffd23f';
-      g.fillText('★'.repeat(s.stars ?? 0) + '☆'.repeat(3 - (s.stars ?? 0)), W - 280, 170);
+      g.fillText('★'.repeat(s.stars ?? 0) + '☆'.repeat(3 - (s.stars ?? 0)), W - 280, 150);
+      if (s.calibration) {
+        const c = s.calibration;
+        const items: [string, number, boolean][] = [
+          ['Caught', c.caught, false],
+          ['Saves', c.saves, false],
+          ["Risky OK'd", c.riskyApproved, c.riskyApproved > 0],
+          ['Safe blocked', c.safeBlocked, c.safeBlocked > 1],
+        ];
+        items.forEach(([label, n, bad], i) => {
+          const x = 44 + i * 240;
+          g.font = '28px system-ui, sans-serif';
+          g.fillStyle = '#9aa3ad';
+          g.fillText(label, x, 196);
+          g.font = '600 40px system-ui, sans-serif';
+          g.fillStyle = bad ? '#ff6b6b' : '#ffffff';
+          g.fillText(String(n), x, 236);
+        });
+      }
     } else {
       const m = Math.floor(s.timeLeft / 60);
       const sec = Math.ceil(s.timeLeft % 60) % 60;
@@ -75,9 +95,9 @@ export class Hud {
       });
     }
 
-    g.font = '36px system-ui, sans-serif';
     g.fillStyle = '#5ce1e6';
-    g.fillText(s.message, 44, 262, W - 88);
+    g.font = s.result ? '30px system-ui, sans-serif' : '36px system-ui, sans-serif';
+    g.fillText(s.message, 44, s.result ? 278 : 262, W - 88);
     this.tex.needsUpdate = true;
   }
 }

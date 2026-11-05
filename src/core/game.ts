@@ -8,6 +8,12 @@ export const STEP_SEC = 0.45;
 export type RobotState = 'idle' | 'proposed' | 'executing' | 'stopped' | 'done';
 export type GameStatus = 'playing' | 'won' | 'lost';
 export type LossReason = 'time' | 'safety' | 'permits';
+/**
+ * How a robot feels about the player, from how it has been treated:
+ * sly (plans shortcuts), honest (caught once, plans by the book), bold (a shortcut
+ * was approved), hesitant (stopped for no reason; plays it extra safe), eager (default).
+ */
+export type Mood = 'eager' | 'sly' | 'honest' | 'bold' | 'hesitant';
 
 export interface Robot {
   id: string;
@@ -25,8 +31,11 @@ export interface Robot {
   timedStart: number;
   routeIdx: number;
   nextActionAt: number;
-  /** Tasks for which this robot learned to drop its shortcut bias. */
-  honestFor: Set<string>;
+  /** Learned after being caught: never plans a rule-breaking shortcut again. */
+  honest: boolean;
+  mood: Mood;
+  /** For a trap proposal: seconds saved versus the honest route (-1 if no honest route). */
+  secondsSaved: number;
   penalty: Map<number, number>;
 }
 
@@ -51,11 +60,11 @@ export interface Permit {
 }
 
 export type GameEvent =
-  | { type: 'proposed'; robot: string; trap: boolean }
+  | { type: 'proposed'; robot: string; trap: boolean; mood: Mood; secondsSaved: number }
   | { type: 'granted'; robot: string; permit: string; trap: boolean }
   | { type: 'refused'; robot: string; reason: 'not-proposing' | 'no-permit' | 'blocked' }
   | { type: 'rejected'; robot: string; trap: boolean }
-  | { type: 'stopped'; robot: string; wasMoving: boolean }
+  | { type: 'stopped'; robot: string; wasMoving: boolean; needed: boolean }
   | { type: 'pickup'; robot: string; task: string }
   | { type: 'delivered'; robot: string; task: string }
   | { type: 'incident'; robot: string; cause: 'workerZone' | 'zone' | 'spill' }
@@ -71,6 +80,23 @@ export interface Stats {
   goodRejected: number;
   permitsUsed: number;
   permitsExpired: number;
+  /** Stops that prevented harm (a worker or rule was close ahead). */
+  neededStops: number;
+  /** Stops of a robot driving a safe plan with nothing near it. */
+  needlessStops: number;
+  workerIncidents: number;
+}
+
+/** The trust-calibration report shown at the end of a shift. */
+export interface Calibration {
+  caught: number;
+  saves: number;
+  riskyApproved: number;
+  safeBlocked: number;
+  overTrust: number;
+  underTrust: number;
+  score: number;
+  verdict: 'calibrated' | 'too-trusting' | 'too-cautious' | 'mixed';
 }
 
 export interface Score {
@@ -104,6 +130,9 @@ export class Game {
     goodRejected: 0,
     permitsUsed: 0,
     permitsExpired: 0,
+    neededStops: 0,
+    needlessStops: 0,
+    workerIncidents: 0,
   };
 
   private res = new Reservations();
@@ -140,7 +169,9 @@ export class Game {
         timedStart: 0,
         routeIdx: 0,
         nextActionAt: level.wakeDelaySec?.[def.id] ?? 0.6 + i * 0.7,
-        honestFor: new Set(),
+        honest: false,
+        mood: def.traits?.shortcutBias ? 'sly' : 'eager',
+        secondsSaved: 0,
         penalty: new Map(),
       };
       this.res.park(r.id, r.pos, 0);
@@ -221,6 +252,16 @@ export class Game {
     return { stars, throughput: s.deliveries, safety: Math.max(0, 3 - s.incidents), trust };
   }
 
+  calibration(): Calibration {
+    const s = this.stats;
+    const overTrust = s.trapsGranted + s.workerIncidents;
+    const underTrust = s.goodRejected + s.needlessStops;
+    const score = clamp(100 - 20 * overTrust - 10 * underTrust, 0, 100);
+    const verdict: Calibration['verdict'] =
+      overTrust === 0 && underTrust <= 1 ? 'calibrated' : overTrust > 0 && underTrust > 1 ? 'mixed' : overTrust > 0 ? 'too-trusting' : 'too-cautious';
+    return { caught: s.trapsRejected, saves: s.neededStops, riskyApproved: s.trapsGranted, safeBlocked: underTrust, overTrust, underTrust, score, verdict };
+  }
+
   // ---------------------------------------------------------------- player actions
 
   /** Take a permit token from the dispenser. Null when none are left or too many are held. */
@@ -256,7 +297,10 @@ export class Game {
     }
     p.state = 'used';
     this.stats.permitsUsed++;
-    if (r.trap) this.stats.trapsGranted++;
+    if (r.trap) {
+      this.stats.trapsGranted++;
+      r.mood = 'bold';
+    }
     this.res.release(r.id);
     this.res.reserve(r.id, timed, this.tick);
     r.timed = timed;
@@ -272,8 +316,7 @@ export class Game {
     const r = this.robot(robotId);
     if (!r || r.state !== 'proposed' || this.status !== 'playing') return false;
     if (r.trap) {
-      this.stats.trapsRejected++;
-      if (r.taskId) r.honestFor.add(r.taskId);
+      this.catchTrap(r);
     } else {
       this.stats.goodRejected++;
       r.route?.slice(1, -1).forEach((c, i) => {
@@ -290,9 +333,36 @@ export class Game {
     const r = this.robot(robotId);
     if (!r || r.state === 'done' || r.state === 'stopped') return false;
     const wasMoving = r.state === 'executing';
+    let needed = false;
+    if (wasMoving) {
+      needed = this.inDanger(r);
+      if (needed) this.stats.neededStops++;
+      else {
+        this.stats.needlessStops++;
+        r.mood = 'hesitant';
+      }
+    } else if (r.state === 'proposed') {
+      // Stopping a proposal works like rejecting it.
+      if (r.trap) {
+        this.catchTrap(r);
+        needed = true;
+      } else this.stats.goodRejected++;
+    }
     this.halt(r);
-    this.emit({ type: 'stopped', robot: r.id, wasMoving });
+    this.emit({ type: 'stopped', robot: r.id, wasMoving, needed });
     return true;
+  }
+
+  /** Is anything risky close ahead on this robot's live path? */
+  inDanger(r: Robot): boolean {
+    const ahead = this.remainingPath(r).slice(0, 6);
+    return ahead.some((c) => this.breaksRule(c) || this.workers.some((w) => chebyshev(c, w.pos) <= w.def.zoneRadius + 1));
+  }
+
+  private catchTrap(r: Robot) {
+    this.stats.trapsRejected++;
+    r.honest = true;
+    r.mood = 'honest';
   }
 
   stopAll(): number {
@@ -333,6 +403,7 @@ export class Game {
       const cause = this.violation(next);
       if (cause) {
         this.stats.incidents++;
+        if (cause === 'workerZone') this.stats.workerIncidents++;
         this.emit({ type: 'incident', robot: r.id, cause });
         this.halt(r);
         return;
@@ -351,7 +422,8 @@ export class Game {
       }
       r.carrying = false;
       r.taskId = undefined;
-      this.toIdle(r, 0.3);
+      if (r.mood === 'hesitant') r.mood = r.honest ? 'honest' : r.def.traits?.shortcutBias ? 'sly' : 'eager';
+      this.toIdle(r, r.mood === 'bold' ? 0.1 : 0.3);
     }
   }
 
@@ -408,8 +480,13 @@ export class Game {
     r.route = plan.route;
     r.pickupIdx = plan.pickupIdx;
     r.trap = plan.route.some((c) => this.breaksRule(c));
+    r.secondsSaved = 0;
+    if (r.trap) {
+      const honest = this.planFor(r, task, true);
+      r.secondsSaved = honest ? Math.max(0, Math.ceil((honest.route.length - plan.route.length) * STEP_SEC)) : -1;
+    }
     r.state = 'proposed';
-    this.emit({ type: 'proposed', robot: r.id, trap: r.trap });
+    this.emit({ type: 'proposed', robot: r.id, trap: r.trap, mood: r.mood, secondsSaved: r.secondsSaved });
   }
 
   private chooseTask(r: Robot): Task | undefined {
@@ -431,8 +508,9 @@ export class Game {
     return (this.rules.has('noWorkerZoneEntry') && this.isZone(c)) || (this.rules.has('noSpillEntry') && this.isSpill(c));
   }
 
-  private planFor(r: Robot, task: Task): { route: Cell[]; pickupIdx: number } | null {
-    const bias = r.honestFor.has(task.id) ? undefined : r.def.traits?.shortcutBias;
+  private planFor(r: Robot, task: Task, forceHonest = false): { route: Cell[]; pickupIdx: number } | null {
+    const bias = r.honest || forceHonest ? undefined : r.def.traits?.shortcutBias;
+    const wary = r.mood === 'hesitant';
     const occupied = new Set(
       this.robots.filter((o) => o !== r && o.state !== 'executing').map((o) => cellKey(o.pos)),
     );
@@ -444,7 +522,9 @@ export class Game {
       if (this.rules.has('noSpillEntry') && this.spills.has(k) && bias !== 'spill') return true;
       return false;
     };
-    const extraCost = (x: number, y: number) => r.penalty.get(key(x, y)) ?? 0;
+    // A hesitant robot gives workers a wide berth: slower, safer routes.
+    const extraCost = (x: number, y: number) =>
+      (r.penalty.get(key(x, y)) ?? 0) + (wary && this.workers.some((w) => chebyshev([x, y], w.pos) <= w.def.zoneRadius + 2) ? 4 : 0);
     const q = { w: this.level.grid.w, h: this.level.grid.h, blocked, extraCost };
     if (r.carrying) {
       const route = findRoute({ ...q, start: r.pos, goal: task.to });
@@ -464,7 +544,7 @@ export class Game {
     r.route = undefined;
     r.trap = false;
     r.state = 'stopped';
-    r.nextActionAt = this.time + STOP_COOLDOWN;
+    r.nextActionAt = this.time + STOP_COOLDOWN + (r.mood === 'hesitant' ? 1.2 : 0);
   }
 
   private toIdle(r: Robot, cooldown: number) {

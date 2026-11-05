@@ -51,6 +51,14 @@ export class Sfx {
   stopAll() {
     for (let i = 0; i < 3; i++) this.tone(700, 0.12, 'square', i * 0.16, 0.25, 350);
   }
+  brake() {
+    this.tone(1400, 0.22, 'sawtooth', 0, 0.18, 500);
+    this.tone(260, 0.12, 'square', 0.05, 0.25);
+  }
+  warn() {
+    this.tone(980, 0.08, 'square', 0, 0.2);
+    this.tone(980, 0.08, 'square', 0.12, 0.2);
+  }
   propose() {
     this.tone(1200, 0.05, 'sine', 0, 0.25);
   }

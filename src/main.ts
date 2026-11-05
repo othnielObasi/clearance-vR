@@ -21,6 +21,8 @@ async function boot() {
   });
   world.registerSystem(makeClearanceSystem(() => app));
   app = new ClearanceApp(world);
+  // ?debug exposes the app for automated browser tests and playtest tooling.
+  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { clearance: app });
 
   const xr = navigator.xr;
   const arOK = xr ? await xr.isSessionSupported('immersive-ar').catch(() => false) : false;

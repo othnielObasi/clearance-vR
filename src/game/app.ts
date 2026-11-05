@@ -27,7 +27,9 @@ import { BoardView } from '../xr/board-view';
 import { GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeToken, TILE } from '../xr/models';
+import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
+import { proposalLine, reactionLine, verdictLine } from './voice';
 import { loadProgress, saveResult } from './progress';
 
 type ButtonAction = () => void;
@@ -78,6 +80,11 @@ export class ClearanceApp {
   private coach!: Coach;
   private buttons = new Map<number, Button>();
   private panels = new Map<string, RobotPanel>();
+  private bubbles = new Map<string, Bubble>();
+  /** Game-time multiplier: dips briefly into slow motion on a near miss. */
+  private timeScale = 1;
+  private slowUntil = 0;
+  private slowCooldown = new Map<string, number>();
   private tokens: Token[] = [];
   private ready?: Token;
   private dispenser = new Group();
@@ -156,6 +163,9 @@ export class ClearanceApp {
     this.retryBtn.mesh.position.set(-0.05, 0.05, farZ - 0.01);
 
     for (const r of this.game.robots) {
+      const bubble = new Bubble();
+      this.view.content.add(bubble.sprite);
+      this.bubbles.set(r.id, bubble);
       this.panels.set(r.id, {
         grant: this.addButton('✓', COLORS.go, () => this.grantByButton(r.id)),
         reject: this.addButton('✗', 0xff8a3d, () => this.rejectRobot(r.id)),
@@ -169,6 +179,10 @@ export class ClearanceApp {
     for (const b of this.buttons.values()) b.entity.dispose();
     this.buttons.clear();
     this.panels.clear();
+    this.bubbles.clear();
+    this.slowCooldown.clear();
+    this.timeScale = 1;
+    this.slowUntil = 0;
     for (const t of this.tokens) t.entity.dispose();
     this.tokens = [];
     this.ready = undefined;
@@ -216,8 +230,9 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ actions (shared by gestures and buttons)
 
   private stopRobot(id: string) {
+    const moving = this.game.robot(id)?.state === 'executing';
     if (this.game.stop(id)) {
-      this.sfx.stop();
+      if (!moving) this.sfx.stop();
       this.view.flash(id);
     }
   }
@@ -321,26 +336,71 @@ export class ClearanceApp {
     this.placeBoard();
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
 
+    this.view.hands = (['left', 'right'] as const).filter((s) => this.tracker.hands[s].tracked).map((s) => this.tracker.hands[s].indexTip);
     if (!paused) {
       this.handleGestures(dt);
-      this.game.update(dt);
+      this.updateSlowMotion(dt);
+      this.game.update(dt * this.timeScale);
     }
     for (const e of this.game.drainEvents()) this.onGameEvent(e);
     this.coach.update(dt);
     this.view.update(dt, this.clock);
     this.updateTokens(dt);
     this.updateButtons();
+    this.updateBubbles();
     this.drawHud();
+  }
+
+  /** Half a second of slow motion when a moving robot is about to reach a worker: time to react, and drama. */
+  private updateSlowMotion(dt: number) {
+    const g = this.game;
+    if (g.status === 'playing') {
+      for (const r of g.robots) {
+        if (r.state !== 'executing') continue;
+        const next = g.remainingPath(r).slice(1, 3);
+        const close = next.some((c) => g.inWorkerZone(c));
+        if (close && this.clock > (this.slowCooldown.get(r.id) ?? 0)) {
+          this.slowUntil = this.clock + 0.6;
+          this.slowCooldown.set(r.id, this.clock + 3);
+          this.view.flash(r.id);
+          this.sfx.warn();
+        }
+      }
+    }
+    const target = this.clock < this.slowUntil ? 0.3 : 1;
+    this.timeScale += (target - this.timeScale) * Math.min(1, dt * 12);
+  }
+
+  private updateBubbles() {
+    const playing = this.game.status === 'playing';
+    for (const r of this.game.robots) {
+      const b = this.bubbles.get(r.id);
+      if (!b) continue;
+      const [x, y] = this.game.robotRenderPos(r);
+      this.view.cellToLocal(x, y, b.sprite.position).setY(0.09);
+      b.update(this.clock, playing && r.state === 'proposed' ? proposalLine(r) : null, r.mood);
+    }
   }
 
   private onGameEvent(e: GameEvent) {
     this.coach.onEvent(e);
+    if ('robot' in e) {
+      const line = reactionLine(e);
+      if (line) this.bubbles.get(e.robot)?.react(line, this.clock);
+    }
     switch (e.type) {
       case 'proposed':
         this.sfx.propose();
         break;
       case 'granted':
         this.sfx.grant();
+        this.view.pop(e.robot);
+        break;
+      case 'stopped':
+        if (e.wasMoving) {
+          this.view.brake(e.robot);
+          this.sfx.brake();
+        }
         break;
       case 'refused':
         this.sfx.refuse();
@@ -489,9 +549,9 @@ export class ClearanceApp {
       panel.grant.mesh.visible = proposed;
       panel.reject.mesh.visible = proposed;
       panel.stop.mesh.visible = moving;
-      panel.grant.mesh.position.set(base.x - 0.014, 0.06, base.z);
-      panel.reject.mesh.position.set(base.x + 0.014, 0.06, base.z);
-      panel.stop.mesh.position.set(base.x, 0.06, base.z);
+      panel.grant.mesh.position.set(base.x - 0.014, 0.052, base.z);
+      panel.reject.mesh.position.set(base.x + 0.014, 0.052, base.z);
+      panel.stop.mesh.position.set(base.x, 0.052, base.z);
     }
     if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing;
     const ended = this.game.status !== 'playing';
@@ -508,7 +568,8 @@ export class ClearanceApp {
       target: level.win.deliveries,
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held').length,
       timeLeft: g.timeLeft,
-      message: this.coach.message,
+      message: g.status === 'playing' ? this.coach.message : verdictLine(g.calibration()),
+      calibration: g.status === 'playing' ? undefined : g.calibration(),
       stars: g.status === 'won' ? g.score().stars : 0,
       result: g.status === 'playing' ? undefined : g.status,
     });
