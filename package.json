@@ -29,5 +29,8 @@
   "type": "module",
   "overrides": {
     "three": "npm:super-three@0.185.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

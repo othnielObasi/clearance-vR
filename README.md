@@ -40,7 +40,9 @@ npm run build      # static build in dist/
 
 **On a Quest:** run `npm run dev`, then open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.
 
-**Deploy:** push to `main` on GitHub with Pages enabled (Settings → Pages → Source: GitHub Actions). The workflow runs the tests, builds with the right base path and publishes to `https://<user>.github.io/<repo>/`.
+**Deploy to Vercel:** import the GitHub repo at vercel.com/new (framework, build command and output folder come from `vercel.json`), or from this folder run `npx vercel --prod`. Every push to `main` then redeploys.
+
+**Deploy to GitHub Pages:** push to `main` on GitHub with Pages enabled (Settings → Pages → Source: GitHub Actions). The workflow runs the tests, builds with the right base path and publishes to `https://<user>.github.io/<repo>/`.
 
 ## Evaluation
 
