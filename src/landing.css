@@ -1,0 +1,481 @@
+@import '@fontsource/saira-stencil-one/400.css';
+@import '@fontsource/barlow-condensed/600.css';
+@import '@fontsource/barlow-condensed/700.css';
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/600.css';
+
+/* Taken from the game's warehouse floor and signage. */
+:root {
+  --concrete: #d9d4ca;
+  --concrete-deep: #c9c3b6;
+  --seam: rgba(70, 62, 50, 0.07);
+  --signal: #1f2328;
+  --ink-soft: #4a4f57;
+  --safety: #ffc93c;
+  --walkway: #2ea05a;
+  --permit: #58f0a0;
+  --permit-ink: #0c3a24;
+  --stencil: 'Saira Stencil One', 'Barlow Condensed', system-ui, sans-serif;
+  --signage: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --body: 'Barlow', system-ui, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--concrete);
+  color: var(--signal);
+  font: 400 18px/1.55 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The game canvas sits behind the page and takes over while playing. */
+#scene {
+  position: fixed;
+  inset: 0;
+  visibility: hidden;
+}
+body.playing #scene {
+  visibility: visible;
+}
+body.playing #landing {
+  display: none;
+}
+
+#landing {
+  position: relative;
+  /* Faint concrete slab seams, one every 64 px, like the board's floor. */
+  background-color: var(--concrete);
+  background-image: linear-gradient(var(--seam) 1px, transparent 1px), linear-gradient(90deg, var(--seam) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+
+.hazard {
+  height: 14px;
+  background: repeating-linear-gradient(-45deg, var(--safety) 0 14px, var(--signal) 14px 28px);
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-areas: 'mark mark' 'copy shot';
+  column-gap: clamp(24px, 4vw, 64px);
+  row-gap: clamp(20px, 3vw, 40px);
+  align-items: center;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 88px) clamp(16px, 4vw, 48px) clamp(40px, 6vw, 96px);
+}
+
+.hero-copy {
+  display: contents;
+}
+.wordmark {
+  grid-area: mark;
+  margin: 0;
+  /* Sized to span the hero on one line, like a floor marking painted across a bay. */
+  font: 400 clamp(52px, 16.9vw, 256px) / 0.86 var(--stencil);
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  /* Painted on the floor: safety yellow with a hard black drop, like a stencil over a kerb. */
+  color: var(--safety);
+  text-shadow: 0.035em 0.045em 0 var(--signal);
+}
+.hero-text {
+  grid-area: copy;
+  align-self: start;
+}
+
+.lede {
+  max-width: 30ch;
+  margin: 0 0 32px;
+  font: 600 clamp(22px, 2.3vw, 30px) / 1.25 var(--signage);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button {
+  font: 700 20px/1 var(--signage);
+  cursor: pointer;
+  border: 0;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--signal);
+  outline-offset: 3px;
+}
+
+/* The primary button is the permit ticket itself: mint, perforated on both ends. */
+.permit {
+  --notch: 9px;
+  position: relative;
+  padding: 20px 76px 20px 40px;
+  min-width: 280px;
+  text-align: left;
+  background: var(--permit);
+  color: var(--permit-ink);
+  font-size: 24px;
+  border-radius: 6px;
+  mask:
+    radial-gradient(circle var(--notch) at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+  box-shadow: inset 0 -4px 0 rgba(12, 58, 36, 0.25);
+  transition: transform 0.12s ease;
+}
+.permit::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  right: 48px;
+  border-right: 2px dashed rgba(12, 58, 36, 0.35);
+}
+.permit:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+.permit:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.plain {
+  padding: 14px 22px;
+  background: var(--signal);
+  color: var(--concrete);
+  border-radius: 6px;
+}
+.plain:not(:disabled):hover {
+  background: #343a42;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.fine {
+  margin: 18px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.hero-shot {
+  grid-area: shot;
+  margin: 0;
+}
+.hero-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  /* Sits on the floor like a printed photo held by tape. */
+  box-shadow: 0 2px 0 var(--concrete-deep), 0 18px 40px -18px rgba(31, 35, 40, 0.55);
+  transform: rotate(0.8deg);
+}
+
+/* ------------------------------------------------------------------ sections */
+
+.block {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: clamp(40px, 6vw, 88px) clamp(16px, 4vw, 48px);
+  /* A painted aisle line between sections. */
+  border-top: 5px solid var(--safety);
+}
+
+h2 {
+  margin: 0 0 12px;
+  font: 700 clamp(32px, 4vw, 52px) / 1.02 var(--signage);
+}
+h3 {
+  margin: 14px 0 6px;
+  font: 700 24px/1.1 var(--signage);
+}
+.intro {
+  max-width: 62ch;
+  margin: 0 0 36px;
+  color: var(--ink-soft);
+}
+
+/* Safety signs: the one loud element on the page. */
+.signs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 44px 40px;
+}
+.signs p {
+  margin: 0;
+  max-width: 34ch;
+}
+.signs .alt {
+  margin-top: 6px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.sign {
+  display: block;
+  width: 112px;
+  height: 112px;
+  padding: 10px;
+  color: var(--signal);
+  background: var(--safety);
+  border: 6px solid var(--signal);
+  border-radius: 14px;
+}
+
+/* Crew ID badges: photo, name over a stripe in the robot's colour. */
+.crew {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+}
+.crew li {
+  background: #f1eee8;
+  border-radius: 10px;
+  overflow: hidden;
+  border-top: 10px solid var(--c);
+}
+.crew img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+.crew h3 {
+  margin: 14px 18px 4px;
+  font-size: 30px;
+}
+.crew p {
+  margin: 0 18px 20px;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+}
+.modes > div {
+  padding-left: 20px;
+  border-left: 5px solid var(--walkway);
+}
+.modes h3 {
+  margin-top: 0;
+  font-size: 30px;
+}
+.modes p {
+  margin: 0;
+  max-width: 36ch;
+}
+
+.quest {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  align-items: center;
+}
+.steps {
+  margin: 20px 0;
+  padding-left: 1.4em;
+  font: 600 22px/1.4 var(--signage);
+}
+.steps li + li {
+  margin-top: 6px;
+}
+.url {
+  margin: 0;
+  font: 700 24px/1.2 var(--signage);
+  overflow-wrap: anywhere;
+}
+.url a {
+  color: var(--signal);
+  text-decoration-color: var(--safety);
+  text-decoration-thickness: 4px;
+  text-underline-offset: 5px;
+}
+.qr {
+  width: 220px;
+  height: 220px;
+  padding: 14px;
+  background: #fff;
+  border: 6px solid var(--signal);
+  border-radius: 14px;
+}
+.qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.why p {
+  max-width: 64ch;
+}
+.why .credit {
+  margin-top: 28px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+/* On a headset the page leads with the buttons, and the "open on your Quest" part is moot. */
+body.xr .quest {
+  display: none;
+}
+body.xr .hero {
+  grid-template-columns: 1fr;
+  grid-template-areas: 'mark' 'copy' 'shot';
+}
+body.xr .hero-shot {
+  max-width: 820px;
+}
+/* In the headset browser: smaller wordmark, bigger targets for pokes and pinches. */
+body.xr .hero {
+  padding-top: 28px;
+}
+body.xr .wordmark {
+  font-size: clamp(48px, 9vw, 128px);
+}
+body.xr .lede {
+  margin-bottom: 24px;
+}
+body.xr .permit {
+  font-size: 30px;
+  padding: 26px 84px 26px 44px;
+}
+body.xr .plain {
+  font-size: 24px;
+  padding: 18px 28px;
+}
+
+/* ------------------------------------------------------------------ in game */
+
+.back {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 5;
+  display: none;
+  padding: 12px 18px;
+  background: var(--signal);
+  color: var(--concrete);
+  border-radius: 6px;
+}
+body.playing:not(.in-xr) .back {
+  display: block;
+}
+
+.card {
+  position: fixed;
+  left: 50%;
+  bottom: 7vh;
+  z-index: 6;
+  transform: translateX(-50%);
+  width: min(92vw, 520px);
+  padding: 26px 24px 22px;
+  background: var(--concrete);
+  border: 6px solid var(--signal);
+  border-radius: 14px;
+  display: none;
+}
+body.result .card {
+  display: block;
+}
+.card h2 {
+  font-size: 34px;
+}
+.card pre {
+  margin: 14px 0 18px;
+  padding: 14px;
+  background: #fff;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font: 15px/1.5 ui-monospace, monospace;
+}
+.card .row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.card .permit {
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ small screens */
+
+@media (max-width: 900px) {
+  .signs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .hero {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'mark' 'copy' 'shot';
+  }
+  .crew {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .modes {
+    grid-template-columns: 1fr;
+  }
+  .quest {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .signs {
+    grid-template-columns: 1fr;
+  }
+  .permit {
+    width: 100%;
+    min-width: 0;
+  }
+  .secondary,
+  .secondary .plain {
+    width: 100%;
+  }
+  .secondary .plain {
+    flex: 1;
+  }
+  .crew {
+    gap: 14px;
+  }
+  .crew h3 {
+    font-size: 24px;
+    margin: 10px 12px 2px;
+  }
+  .crew p {
+    margin: 0 12px 14px;
+    font-size: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+  .hero-shot img {
+    transform: none;
+  }
+}

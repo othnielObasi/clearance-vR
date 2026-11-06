@@ -3,50 +3,204 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Clearance: a hands-first mixed-reality puzzle. Tiny robots plan. Nothing moves without your clearance." />
     <title>Clearance</title>
+    <meta name="description" content="A hands-first mixed-reality puzzle game for Meta Quest. Tiny robots plan their own work on your real desk. Nothing moves until you give it clearance." />
+    <meta property="og:title" content="Clearance" />
+    <meta property="og:description" content="Tiny robots plan. Nothing moves without your clearance. A hands-first mixed-reality game for Meta Quest." />
+    <meta property="og:image" content="og.jpg" />
+    <meta name="theme-color" content="#d9d4ca" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%2358f0a0%27/%3E%3C/svg%3E" />
-    <style>
-      :root { color-scheme: dark; --ink: #eef1f4; --muted: #9aa3ad; --go: #3fb950; --panel: rgba(20, 24, 30, 0.9); --line: #2c333d; }
-      html, body { margin: 0; height: 100%; background: #14181e; color: var(--ink); font-family: system-ui, sans-serif; }
-      #scene { position: fixed; inset: 0; }
-      .card { position: fixed; left: 50%; bottom: 7vh; transform: translateX(-50%); width: min(92vw, 520px); box-sizing: border-box;
-              background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 26px 24px 20px; text-align: center; }
-      body.playing .card { opacity: 0; pointer-events: none; transition: opacity 0.35s; }
-      h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: 0.02em; }
-      .tag { margin: 0 0 18px; color: var(--muted); }
-      .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-      button { font: 600 18px system-ui, sans-serif; padding: 15px 22px; border: 0; border-radius: 999px; cursor: pointer; min-width: 200px; }
-      .primary { background: var(--go); color: #08110a; }
-      .secondary { background: #262d36; color: var(--ink); border: 1px solid #3a434e; }
-      button:disabled { background: #3a414b; color: var(--muted); cursor: wait; }
-      .meta { margin: 14px 0 0; font-size: 14px; color: var(--muted); }
-      #share { display: none; }
-      body.result #share { display: block; }
-      body.result #intro { display: none; }
-      pre { text-align: left; background: #0f1318; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 14px 0; white-space: pre-wrap; font: 15px/1.5 ui-monospace, monospace; }
-    </style>
+    <link rel="preload" as="image" href="hero.webp" fetchpriority="high" />
   </head>
   <body>
-    <div id="scene"></div>
-    <div class="card" id="intro">
-      <h1>Clearance</h1>
-      <p class="tag">Tiny robots plan. Nothing moves without your clearance.</p>
-      <div class="row">
-        <button id="start" class="primary" disabled>Loading…</button>
-        <button id="daily" class="secondary" disabled>Daily Shift</button>
-        <button id="overtime" class="secondary" disabled>Overtime</button>
-      </div>
-      <p class="meta" id="status">Hands only. Seated. About 10 minutes.</p>
-    </div>
-    <div class="card" id="share">
-      <h1>Daily Shift</h1>
+    <div id="scene" aria-hidden="true"></div>
+    <button id="back" class="back" type="button">Back to the page</button>
+
+    <main id="landing">
+      <div class="hazard" aria-hidden="true"></div>
+
+      <section class="hero" aria-labelledby="title">
+        <div class="hero-copy">
+          <h1 id="title" class="wordmark">Clearance</h1>
+          <div class="hero-text">
+          <p class="lede">Tiny robots plan their own work on your real desk. Nothing moves until you give it clearance.</p>
+          <div class="actions">
+            <button id="start" class="permit" type="button" disabled>Loading…</button>
+            <div class="secondary">
+              <button id="daily" class="plain" type="button" disabled>Daily Shift</button>
+              <button id="overtime" class="plain" type="button" disabled>Overtime</button>
+            </div>
+          </div>
+          <p id="status" class="fine">Hands only. Seated. A shift takes about two minutes.</p>
+          </div>
+        </div>
+        <figure class="hero-shot">
+          <img src="hero.webp" width="1600" height="1012" alt="A miniature warehouse on a wooden desk: four small robots, pallet racking, crates and a worker on a green walkway, with a status card floating above." />
+        </figure>
+      </section>
+
+      <section id="how" class="block" aria-labelledby="how-title">
+        <h2 id="how-title">Six hand signals run the floor</h2>
+        <p class="intro">You never steer a robot. Each one picks a job and shows its plan as a dotted path. Your hands decide what is allowed to happen. Every signal also has a button, so you can play one-handed.</p>
+        <ul class="signs">
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="26" r="13" fill="none" stroke="currentColor" stroke-width="6" />
+              <path d="M44 26l4.5 4.5 8-9" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M50 44v12" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
+              <path d="M43 52l7 7 7-7" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+              <rect x="28" y="64" width="44" height="20" rx="7" fill="currentColor" />
+              <circle cx="42" cy="73" r="3" fill="#ffc93c" /><circle cx="58" cy="73" r="3" fill="#ffc93c" />
+              <circle cx="33" cy="87" r="4" fill="currentColor" /><circle cx="67" cy="87" r="4" fill="currentColor" />
+            </svg>
+            <h3>Clear a robot</h3>
+            <p>Pinch a permit from the dispenser and drop it on a robot that is asking. It moves only on your permit.</p>
+            <p class="alt">Or press the green tick above it.</p>
+          </li>
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <path d="M14 70h14M38 70h14M62 70h14" stroke="currentColor" stroke-width="6" stroke-linecap="round" />
+              <path d="M20 40c20-18 46-18 62 0" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" />
+              <path d="M74 30l9 10-13 4" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M36 58l28 24M64 58L36 82" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+            </svg>
+            <h3>Reject a plan</h3>
+            <p>Flick a finger sideways across a plan you don't like. The robot thinks again, and a robot caught taking a shortcut stops trying.</p>
+            <p class="alt">Or press the orange cross.</p>
+          </li>
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <use href="#hand" x="-12" y="4" />
+              <rect x="70" y="54" width="22" height="16" rx="5" fill="currentColor" />
+              <path d="M66 46l-6-6M66 78l-6 6M64 62h-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            </svg>
+            <h3>Stop one robot</h3>
+            <p>Hold an open palm toward a moving robot. It brakes at once and needs your clearance again before it moves.</p>
+            <p class="alt">Or press the red square above it.</p>
+          </li>
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <use href="#hand" x="-22" y="2" transform="scale(1)" />
+              <use href="#hand" x="22" y="2" />
+            </svg>
+            <h3>Stop everything</h3>
+            <p>Raise both hands, palms up, and every robot on the floor halts.</p>
+            <p class="alt">Or press the red button on the dispenser.</p>
+          </li>
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <path d="M12 26h76M12 50h76M12 74h76M26 12v76M50 12v76M74 12v76" stroke="currentColor" stroke-width="2" opacity="0.35" />
+              <rect x="38" y="38" width="24" height="24" rx="4" fill="#ff9f43" />
+              <path d="M14 50h16v26h40V50h16" fill="none" stroke="currentColor" stroke-width="6" stroke-dasharray="1 9" stroke-linecap="round" />
+              <use href="#hand" transform="translate(50 46) scale(0.58) translate(-51 -48)" />
+            </svg>
+            <h3>Block a lane</h3>
+            <p>Rest a flat hand on the floor. Waiting robots plan round it and moving robots wait for it to lift.</p>
+            <p class="alt">A hands-only move: your hand is the wall.</p>
+          </li>
+          <li>
+            <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
+              <rect x="38" y="8" width="9" height="26" rx="3" fill="currentColor" /><rect x="53" y="8" width="9" height="26" rx="3" fill="currentColor" />
+              <use href="#hand" x="0" y="26" transform="translate(50 64) scale(0.7) translate(-50 -64)" />
+            </svg>
+            <h3>Pause</h3>
+            <p>Turn one hand palm-up and poke the pause button that appears above it.</p>
+            <p class="alt">Or press pause at the corner of the board.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section id="crew" class="block" aria-labelledby="crew-title">
+        <h2 id="crew-title">The crew remembers you</h2>
+        <p class="intro">The same four robots work every shift. Each has its own voice and habits, and each remembers how you treated it last time.</p>
+        <ul class="crew">
+          <li style="--c: #ff8a3d">
+            <img src="crew-bolt.webp" width="640" height="640" loading="lazy" alt="Bolt, a low orange robot with a racing stripe and fin." />
+            <h3>Bolt</h3>
+            <p>Knows every shortcut and will try them all. Catch him and he plans by the book. Let him through and he gets bolder.</p>
+          </li>
+          <li style="--c: #2ec4b6">
+            <img src="crew-pip.webp" width="640" height="640" loading="lazy" alt="Pip, a round teal robot with a dome." />
+            <h3>Pip</h3>
+            <p>Careful and keen. Stop her for no reason and she gets nervous, taking the long way round for a while.</p>
+          </li>
+          <li style="--c: #9b5de5">
+            <img src="crew-rook.webp" width="640" height="640" loading="lazy" alt="Rook, a chunky purple robot on tank treads." />
+            <h3>Rook</h3>
+            <p>Slow, steady and grateful. He remembers every time you stopped him just before trouble.</p>
+          </li>
+          <li style="--c: #f15bb5">
+            <img src="crew-juno.webp" width="640" height="640" loading="lazy" alt="Juno, a slim pink robot with a rear spoiler." />
+            <h3>Juno</h3>
+            <p>The fastest on the floor and a little reckless. She joins when the pace picks up.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section id="modes" class="block" aria-labelledby="modes-title">
+        <h2 id="modes-title">Three ways to work a shift</h2>
+        <div class="modes">
+          <div>
+            <h3>Campaign</h3>
+            <p>Four short shifts that teach the job: clearing plans, keeping workers safe, managing scarce permits, and spotting plans that look fast but break the rules.</p>
+          </div>
+          <div>
+            <h3>Daily Shift</h3>
+            <p>One new floor every day, the same for everyone. Keep a streak going and copy your result to share it.</p>
+          </div>
+          <div>
+            <h3>Overtime</h3>
+            <p>The work never stops. Robots join as you score and old habits come back. One safety mistake ends the shift.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="quest" class="block quest" aria-labelledby="quest-title">
+        <div>
+          <h2 id="quest-title">Play it on your Quest</h2>
+          <ol class="steps">
+            <li>Put on your Quest and open the Browser.</li>
+            <li>Scan the code or type the address below.</li>
+            <li>Sit at a table, put the controllers down and press Start shift.</li>
+          </ol>
+          <p class="url"><a id="url" href="./"></a></p>
+          <p class="fine">Works in the Meta Quest Browser on Quest 3 and 3S, with nothing to install. On a laptop you can try a preview with your mouse.</p>
+        </div>
+        <div id="qr" class="qr" role="img" aria-label="QR code for this page"></div>
+      </section>
+
+      <section id="why" class="block why" aria-labelledby="why-title">
+        <h2 id="why-title">Why a game about saying yes</h2>
+        <p>More of the software around us now plans and acts by itself. The useful human skill is no longer doing the work, but knowing when to trust it: approving the right plans, catching the clever shortcut, and not blocking good work out of habit.</p>
+        <p>Clearance turns that into something you can feel. At the end of every shift it scores your judgement two ways: the risks you let through, and the safe work you blocked. A well-calibrated supervisor keeps both low.</p>
+        <p class="credit">Made in London by NOVTIA for the Meta VR Start Developer Competition 2026. No accounts, no tracking, nothing leaves your headset.</p>
+      </section>
+
+      <div class="hazard" aria-hidden="true"></div>
+    </main>
+
+    <div class="card" id="share" role="dialog" aria-labelledby="share-title">
+      <h2 id="share-title">Daily Shift</h2>
       <pre id="shareText"></pre>
       <div class="row">
-        <button id="copy" class="primary">Copy result</button>
-        <button id="again" class="secondary">Back</button>
+        <button id="copy" class="permit" type="button">Copy result</button>
+        <button id="again" class="plain" type="button">Back</button>
       </div>
     </div>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <g id="hand" fill="currentColor">
+          <rect x="34" y="46" width="34" height="34" rx="11" />
+          <rect x="34" y="22" width="8" height="32" rx="4" />
+          <rect x="43" y="16" width="8" height="36" rx="4" />
+          <rect x="52" y="18" width="8" height="34" rx="4" />
+          <rect x="61" y="26" width="7" height="28" rx="3.5" />
+          <rect x="22" y="50" width="8" height="24" rx="4" transform="rotate(-38 26 62)" />
+        </g>
+      </defs>
+    </svg>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
