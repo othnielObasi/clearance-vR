@@ -126,14 +126,37 @@ export class Hud {
 
     g.fillStyle = '#5ce1e6';
     g.font = s.result ? '30px system-ui, sans-serif' : '36px system-ui, sans-serif';
-    g.fillText(s.message, 44, s.result ? 278 : 262, W - 88);
-    if (s.result && s.note) {
-      g.font = '26px system-ui, sans-serif';
-      g.fillStyle = '#c9d1d9';
-      g.fillText(s.note, 44, 326, W - 88);
-    }
+    if (s.result) {
+      // The end card may carry a two-sentence debrief: wrap it onto two lines, note below.
+      const lines = wrap(g, s.message, W - 88, 2);
+      const two = lines.length > 1;
+      if (two) g.font = '27px system-ui, sans-serif';
+      lines.forEach((line, i) => g.fillText(line, 44, (two ? 266 : 278) + i * 32, W - 88));
+      if (s.note) {
+        g.font = two ? '22px system-ui, sans-serif' : '26px system-ui, sans-serif';
+        g.fillStyle = '#c9d1d9';
+        g.fillText(s.note, 44, two ? 338 : 326, W - 88);
+      }
+    } else g.fillText(s.message, 44, 262, W - 88);
     this.tex.needsUpdate = true;
   }
+}
+
+/** Split text into at most `max` lines that fit `width`; the last line keeps any overflow (squeezed). */
+function wrap(g: CanvasRenderingContext2D, text: string, width: number, max: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (g.measureText(next).width <= width || !cur || lines.length === max - 1) cur = next;
+    else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 function round(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

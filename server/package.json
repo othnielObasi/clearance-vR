@@ -1,0 +1,15 @@
+{
+  "name": "clearance-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Companion server for Clearance: AI robot lines and debrief (Muse Spark Open via Baseten), and the co-op relay.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "UNLICENSED"
+}

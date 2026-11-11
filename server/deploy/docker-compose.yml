@@ -1,0 +1,26 @@
+# Clearance server behind Caddy (automatic HTTPS). Run from server/deploy:
+#   docker compose up -d --build
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "8787"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+volumes:
+  caddy_data:
+  caddy_config:

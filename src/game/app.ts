@@ -44,6 +44,7 @@ import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
+import { type CrewLines, fetchCrewLines, fetchDebrief, pickLine, slotFor } from '../net/server';
 import { crewMemory, loadAssist, loadProgress, overtimeBest, saveAssist, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
 
 /** End-of-shift and pause menu: four pills in one row just above the status card. */
@@ -162,6 +163,13 @@ export class ClearanceApp {
   private assistBtns!: { on: Button; off: Button };
   /** Accessibility: relaxed gestures, bigger robot buttons that are always shown. */
   assist = loadAssist();
+  /** AI lines for this shift's crew (null until they arrive, or when offline). */
+  private aiLines: CrewLines | null = null;
+  /** The shift supervisor's AI debrief for the shift that just ended. */
+  private debrief: string | null = null;
+  /** Counts shifts, so a late answer for an old shift is ignored. */
+  private shiftSeq = 0;
+  private shiftStartedAt = 0;
   /** Called when assist mode is switched from inside the game. */
   onAssistChange?: (on: boolean) => void;
   /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
@@ -346,6 +354,7 @@ export class ClearanceApp {
       if (r.def.traits?.shortcutBias && mem.riskyApproved > mem.caught) r.mood = 'bold';
       this.bubbles.get(r.id)?.react(greetingLine(name, mem), 0.4, 3.2);
     }
+    this.requestCrewLines(level);
     if (new URLSearchParams(location.search).has('debug')) {
       this.debug ??= new DebugPanel();
       this.debug.mesh.position.set(this.view.width / 2 + 0.1, 0.12, -this.view.depth / 2);
@@ -372,6 +381,50 @@ export class ClearanceApp {
     halo.root.visible = false;
     this.view.content.add(halo.root);
     this.halos.set(id, halo);
+  }
+
+  /** Ask for fresh AI lines for this shift's crew. Play never waits for them. */
+  private requestCrewLines(level: LevelDef) {
+    const shift = ++this.shiftSeq;
+    this.aiLines = null;
+    this.debrief = null;
+    this.shiftStartedAt = this.clock;
+    // Overtime can bring the whole crew on shift, so ask for all of them.
+    const names = new Set<CrewName>(this.mode === 'overtime' ? (Object.keys(CREW) as CrewName[]) : this.game.robots.map((r, i) => crewNameFor(r.def, i)));
+    const crew = [...names].map((name) => ({ name, memory: crewMemory(name) }));
+    void fetchCrewLines(level.name, crew).then((lines) => {
+      if (!lines || shift !== this.shiftSeq) return;
+      this.aiLines = lines;
+      // Arrived while the crew is still saying hello: swap in the fresh greeting.
+      if (this.clock - this.shiftStartedAt < 2.5)
+        for (const r of this.game.robots) {
+          const g = pickLine(lines, this.crewOf(r.id), 'greeting');
+          if (g) this.bubbles.get(r.id)?.react(g, this.clock, 3.2);
+        }
+    });
+  }
+
+  /** Ask the shift supervisor (AI) for a short debrief; the HUD shows it when it arrives. */
+  private requestDebrief(status: 'won' | 'lost', reason?: string) {
+    const shift = this.shiftSeq;
+    const cal = this.game.calibration();
+    const crew = [...this.crewTally.entries()].map(([name, t]) => ({ name, ...t }));
+    void fetchDebrief({
+      level: this.level.name,
+      won: status === 'won',
+      reason,
+      stars: this.game.score().stars,
+      deliveries: this.game.stats.deliveries,
+      verdict: cal.verdict,
+      caught: cal.caught,
+      riskyApproved: cal.riskyApproved,
+      saves: cal.saves,
+      safeBlocked: cal.safeBlocked,
+      delegated: cal.delegated,
+      crew,
+    }).then((text) => {
+      if (text && shift === this.shiftSeq) this.debrief = text;
+    });
   }
 
   private crewOf(robotId: string): CrewName {
@@ -931,7 +984,9 @@ export class ClearanceApp {
     this.coach.onEvent(e);
     if ('robot' in e) {
       this.ensureRobotUI(e.robot);
-      const line = reactionLine(e);
+      // A fresh AI line for this robot and moment when we have one; the written line otherwise.
+      const slot = slotFor(e);
+      const line = (slot && pickLine(this.aiLines, this.crewOf(e.robot), slot)) || reactionLine(e);
       if (line) this.bubbles.get(e.robot)?.react(line, this.clock);
       const t = this.tally(e.robot);
       if (e.type === 'rejected' && e.trap) t.caught++;
@@ -941,6 +996,7 @@ export class ClearanceApp {
       if (e.type === 'stopped' && !e.wasMoving && e.needed) t.caught++;
     }
     if (e.type === 'ended') {
+      this.requestDebrief(e.status === 'won' ? 'won' : 'lost', e.reason);
       if (this.mode === 'overtime') this.best = saveOvertime(this.game.stats.deliveries);
       this.flushCrew();
       this.crewSaved = true;
@@ -1262,7 +1318,7 @@ export class ClearanceApp {
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held' && !p.gold).length,
       gold: level.permits.gold ? g.goldAvailable + g.permits.filter((p) => p.gold && p.state === 'held').length : undefined,
       timeLeft: g.timeLeft,
-      message: g.status !== 'playing' ? verdictLine(g.calibration()) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
+      message: g.status !== 'playing' ? (this.debrief ? `Supervisor: ${this.debrief}` : verdictLine(g.calibration())) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
       calibration: g.status === 'playing' ? undefined : g.calibration(),
       stars: g.status === 'won' ? g.score().stars : 0,
       result: g.status === 'playing' ? undefined : g.status,
