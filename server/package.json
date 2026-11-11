@@ -11,5 +11,8 @@
   "engines": {
     "node": ">=20.19"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ws": "^8.22.2"
+  }
 }

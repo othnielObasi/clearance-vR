@@ -23,6 +23,7 @@ import {
   MeshStandardMaterial,
   Quaternion,
   RingGeometry,
+  SphereGeometry,
   Vector3,
 } from 'three';
 import { Game, type GameEvent } from '../core/game';
@@ -44,6 +45,9 @@ import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
+import { CoopLink } from '../net/coop';
+import { applySnapshot, type CoopMsg, snapshot } from '../net/snapshot';
+import { validateLevel } from '../levels/validate';
 import { type CrewLines, fetchCrewLines, fetchDebrief, pickLine, slotFor } from '../net/server';
 import { crewMemory, loadAssist, loadProgress, overtimeBest, saveAssist, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
 
@@ -98,7 +102,7 @@ export class ClearanceApp {
   game!: Game;
   view!: BoardView;
   levelIndex = 0;
-  mode: 'campaign' | 'daily' | 'overtime' = 'campaign';
+  mode: 'campaign' | 'daily' | 'overtime' | 'coop' = 'campaign';
   private director?: OvertimeDirector;
   private best = 0;
   /** How each crew member was treated this shift; saved to their memory when it ends. */
@@ -170,6 +174,29 @@ export class ClearanceApp {
   /** Counts shifts, so a late answer for an old shift is ignored. */
   private shiftSeq = 0;
   private shiftStartedAt = 0;
+  /** Two-player co-op link, when playing together (this player is the host or the guest). */
+  private coop?: CoopLink;
+  private coopSnapAt = 0;
+  private coopHandsAt = 0;
+  private coopWallsAt = 0;
+  /** Host: game events since the last snapshot, for the partner's sounds and speech. */
+  private outEvents: GameEvent[] = [];
+  /** Walls from the other player's hands and objects (host: as sent; guest: everyone's, from the host). */
+  private partnerWalls: Cell[] = [];
+  private partnerWallsAt = -9;
+  /** This player's own hand and object walls. */
+  private myWalls: Cell[] = [];
+  /** Host: all walls applied this frame (both players). */
+  private currentWalls: Cell[] = [];
+  /** Guest: game time of the last snapshot. */
+  private snapTime = 0;
+  private ghostHands: Mesh[] = [];
+  private ghostTargets: Vector3[] = [];
+  private ghostAt = -9;
+  /** Guest: connected, waiting for the host to start a shift. */
+  coopWaiting = false;
+  /** Co-op ended (partner or host left, or the connection dropped). */
+  onCoopEnd?: (why: string) => void;
   /** Called when assist mode is switched from inside the game. */
   onAssistChange?: (on: boolean) => void;
   /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
@@ -255,6 +282,7 @@ export class ClearanceApp {
 
   togglePause() {
     if (this.game.status !== 'playing') return;
+    if (this.isGuest) return this.coopAct('pause');
     this.userPaused = !this.userPaused;
     this.palmShownUntil = 0;
     this.coach.say(this.userPaused ? '' : 'Back on shift.', 1.5);
@@ -354,7 +382,15 @@ export class ClearanceApp {
       if (r.def.traits?.shortcutBias && mem.riskyApproved > mem.caught) r.mood = 'bold';
       this.bubbles.get(r.id)?.react(greetingLine(name, mem), 0.4, 3.2);
     }
-    this.requestCrewLines(level);
+    if (!this.isGuest) this.requestCrewLines(level);
+    // Ghost hands: where the other player's hands are, drawn over the board.
+    this.ghostHands = [0.011, 0.006, 0.011, 0.006].map((r) => {
+      const m = new Mesh(new SphereGeometry(r, 14, 10), new MeshBasicMaterial({ color: 0x7fb8ff, transparent: true, opacity: 0.6, depthWrite: false }));
+      m.visible = false;
+      this.view.content.add(m);
+      return m;
+    });
+    if (this.coop?.role === 'host') this.sendStart();
     if (new URLSearchParams(location.search).has('debug')) {
       this.debug ??= new DebugPanel();
       this.debug.mesh.position.set(this.view.width / 2 + 0.1, 0.12, -this.view.depth / 2);
@@ -381,6 +417,152 @@ export class ClearanceApp {
     halo.root.visible = false;
     this.view.content.add(halo.root);
     this.halos.set(id, halo);
+  }
+
+  // ------------------------------------------------------------------ co-op
+
+  get isGuest() {
+    return this.coop?.role === 'guest';
+  }
+
+  /** Is a partner connected? */
+  get coopActive() {
+    return !!this.coop?.partner;
+  }
+
+  /** Play together: as host this game runs the shift; as guest it mirrors the host's. */
+  attachCoop(link: CoopLink) {
+    this.coop = link;
+    link.onMessage = (m) => this.onCoopMessage(m);
+    link.onChange = () => {
+      if (link.closed || (!link.partner && link.role === 'guest')) {
+        const why = link.role === 'guest' ? 'The host left the co-op shift.' : 'The co-op connection closed.';
+        this.leaveCoop();
+        this.onCoopEnd?.(why);
+        return;
+      }
+      if (link.partner) {
+        this.coach.say('Your partner joined. Their hands show in blue.', 4);
+        this.sendStart();
+      } else this.coach.say('Your partner left. Carry on solo.', 4);
+    };
+    if (link.role === 'guest') {
+      this.coopWaiting = true;
+      this.userPaused = true;
+    }
+  }
+
+  leaveCoop() {
+    const wasGuest = this.isGuest;
+    const link = this.coop;
+    this.coop = undefined;
+    if (link && !link.closed) link.close();
+    this.coopWaiting = false;
+    this.partnerWalls = [];
+    for (const m of this.ghostHands) m.visible = false;
+    if (wasGuest) {
+      // The mirrored shift belongs to the host: go back to this player's own campaign.
+      this.loadLevel(this.campaignStart());
+      if (this.world.session) this.world.exitXR();
+    }
+  }
+
+  private sendStart() {
+    if (this.coop?.role !== 'host' || !this.coop.partner) return;
+    const label = this.mode === 'campaign' ? `${this.levelIndex + 1}. ${this.level.name}` : this.level.name;
+    this.coop.send({ t: 'start', level: this.level, mode: this.mode, label });
+    this.coopSnapAt = 0;
+  }
+
+  private onCoopMessage(m: CoopMsg) {
+    if (this.isGuest) {
+      if (m.t === 'start') {
+        try {
+          const level = validateLevel(m.level as LevelDef);
+          this.coopWaiting = false;
+          this.mode = 'coop';
+          this.start(level);
+          this.coach.say("Co-op shift. Your partner's hands show in blue.", 4);
+        } catch {
+          /* malformed level from the other side: ignore */
+        }
+      } else if (m.t === 'snap' && !this.coopWaiting) {
+        applySnapshot(this.game, m.s);
+        this.snapTime = m.s.time;
+        this.partnerWalls = m.s.walls;
+        this.userPaused = m.s.paused;
+        for (const e of m.ev) this.onGameEvent(e);
+      } else if (m.t === 'hands') this.setGhostHands(m.h);
+      return;
+    }
+    // Host: the partner's actions go through the same paths as this player's buttons.
+    if (m.t === 'act') {
+      const id = m.robot && this.game.robot(m.robot) ? m.robot : undefined;
+      if (m.a === 'grant' && id) this.grantByButton(id);
+      else if (m.a === 'reject' && id) this.rejectRobot(id);
+      else if (m.a === 'stop' && id) this.stopRobot(id);
+      else if (m.a === 'delegate' && id) this.delegateByButton(id);
+      else if (m.a === 'stopAll') this.stopAll();
+      else if (m.a === 'pause') this.togglePause();
+    } else if (m.t === 'walls') {
+      this.partnerWalls = (Array.isArray(m.cells) ? m.cells : []).slice(0, 48);
+      this.partnerWallsAt = this.clock;
+    } else if (m.t === 'hands') this.setGhostHands(m.h);
+  }
+
+  /** Guest: send an action to the host instead of changing the mirror. */
+  private coopAct(a: 'grant' | 'reject' | 'stop' | 'stopAll' | 'delegate' | 'pause', robot?: string) {
+    this.coop?.send({ t: 'act', a, robot });
+  }
+
+  private setGhostHands(h: [number, number, number][]) {
+    if (!Array.isArray(h)) return;
+    this.ghostAt = this.clock;
+    this.ghostHands.forEach((m, i) => {
+      const p = h[i];
+      if (!p) {
+        m.visible = false;
+        return;
+      }
+      const target = (this.ghostTargets[i] ??= new Vector3());
+      target.set(p[0], p[1], p[2]);
+      if (!m.visible) m.position.copy(target);
+      m.visible = true;
+    });
+  }
+
+  /** Per frame: send snapshots (host), walls (guest) and hands (both); smooth the ghost hands. */
+  private updateCoop(dt: number) {
+    const link = this.coop;
+    if (link?.partner) {
+      if (link.role === 'host' && this.clock >= this.coopSnapAt) {
+        this.coopSnapAt = this.clock + 0.1;
+        link.send({ t: 'snap', s: snapshot(this.game, this.currentWalls, this.userPaused), ev: this.outEvents.splice(0) });
+      }
+      if (link.role === 'guest' && this.clock >= this.coopWallsAt) {
+        this.coopWallsAt = this.clock + 0.2;
+        link.send({ t: 'walls', cells: this.myWalls });
+      }
+      if (this.clock >= this.coopHandsAt) {
+        this.coopHandsAt = this.clock + 1 / 15;
+        const pts: [number, number, number][] = [];
+        for (const h of [this.tracker.hands.left, this.tracker.hands.right]) {
+          if (!h.tracked) continue;
+          for (const p of [h.palm, h.indexTip]) {
+            const l = this.view.content.worldToLocal(this.tmp.copy(p));
+            pts.push([Math.round(l.x * 1000) / 1000, Math.round(l.y * 1000) / 1000, Math.round(l.z * 1000) / 1000]);
+          }
+        }
+        link.send({ t: 'hands', h: pts });
+      }
+    }
+    if (this.outEvents.length > 200) this.outEvents.splice(0, this.outEvents.length - 200);
+    const stale = this.clock - this.ghostAt > 0.6;
+    this.ghostHands.forEach((m, i) => {
+      if (stale) m.visible = false;
+      const t = this.ghostTargets[i];
+      if (m.visible && t) m.position.lerp(t, Math.min(1, dt * 18));
+    });
   }
 
   /** Ask for fresh AI lines for this shift's crew. Play never waits for them. */
@@ -567,6 +749,7 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ actions (shared by gestures and buttons)
 
   private stopRobot(id: string) {
+    if (this.isGuest) return this.coopAct('stop', id);
     const moving = this.game.robot(id)?.state === 'executing';
     if (this.game.stop(id)) {
       if (!moving) this.sfx.stop();
@@ -575,6 +758,7 @@ export class ClearanceApp {
   }
 
   private stopAll() {
+    if (this.isGuest) return this.coopAct('stopAll');
     if (this.game.stopAll() > 0) {
       this.sfx.stopAll();
       for (const r of this.game.robots) this.view.flash(r.id);
@@ -582,12 +766,14 @@ export class ClearanceApp {
   }
 
   private rejectRobot(id: string) {
+    if (this.isGuest) return this.coopAct('reject', id);
     const at = this.posOf(id);
     if (this.game.reject(id)) this.sfx.reject(at);
   }
 
   /** Poke/click alternative to handing over a token: uses a held permit, or takes a new one. */
   private grantByButton(id: string) {
+    if (this.isGuest) return this.coopAct('grant', id);
     const held = this.tokens.find((t) => t.permitId && !t.flyTo && this.game.permits.find((p) => p.id === t.permitId)?.state === 'held');
     const permitId = held?.permitId ?? this.game.dispensePermit()?.id;
     if (!permitId) {
@@ -599,6 +785,7 @@ export class ClearanceApp {
 
   /** Poke/click alternative to handing over the gold permit. */
   private delegateByButton(id: string) {
+    if (this.isGuest) return this.coopAct('delegate', id);
     const held = this.tokens.find((t) => t.gold && t.permitId && !t.flyTo && !t.dissolve);
     const permitId = held?.permitId ?? this.game.takeGold()?.id;
     if (!permitId) return this.sfx.refuse();
@@ -653,6 +840,11 @@ export class ClearanceApp {
       }
     }
     if (!best) return;
+    if (this.isGuest) {
+      // The host's game hands over a permit for us; this token flies to the robot.
+      this.coopAct(t.gold ? 'delegate' : 'grant', best);
+      return this.consumeToken(t, best);
+    }
     if (this.game.grant(t.permitId, best)) this.consumeToken(t, best);
     else this.sfx.refuse();
   }
@@ -718,14 +910,23 @@ export class ClearanceApp {
       this.handleGestures(dt);
       this.updateHandWall(dt);
       this.updateSlowMotion(dt);
-      if (this.director) {
-        this.director.step(this.game);
-        for (const a of this.director.announcements.splice(0)) this.coach.say(a, 3);
+      if (this.isGuest) {
+        // Mirror only: move time on smoothly between the host's snapshots.
+        if (this.game.status === 'playing') this.game.time = Math.min(this.game.time + dt, this.snapTime + 0.25);
+      } else {
+        if (this.director) {
+          this.director.step(this.game);
+          for (const a of this.director.announcements.splice(0)) this.coach.say(a, 3);
+        }
+        this.game.update(dt * this.timeScale);
       }
-      this.game.update(dt * this.timeScale);
       this.updateDeskSnap();
     }
-    for (const e of this.game.drainEvents()) this.onGameEvent(e);
+    for (const e of this.game.drainEvents()) {
+      this.onGameEvent(e);
+      if (this.coop?.role === 'host') this.outEvents.push(e);
+    }
+    this.updateCoop(dt);
     this.coach.update(dt);
     if ((this.level.grid.tall ?? []).length && this.game.time > 6) this.coach.tip('lean');
     this.view.update(dt, this.clock);
@@ -911,8 +1112,14 @@ export class ClearanceApp {
       if (objects.length) this.coach.tip('object');
       for (const c of objects) if (!walls.some((x) => x[0] === c[0] && x[1] === c[1])) walls.push(c);
     }
-    this.game.setBlockers(walls);
-    this.view.setHandCells(walls);
+    this.myWalls = walls;
+    const partner = this.isGuest || this.clock - this.partnerWallsAt < 1 ? this.partnerWalls : [];
+    const all = [...walls];
+    for (const c of partner) if (!all.some((x) => x[0] === c[0] && x[1] === c[1])) all.push(c);
+    this.view.setHandCells(all);
+    if (this.isGuest) return; // the host applies them
+    this.currentWalls = all;
+    this.game.setBlockers(all);
   }
 
   /** The board as the depth scanner sees it. */
@@ -996,7 +1203,7 @@ export class ClearanceApp {
       if (e.type === 'stopped' && !e.wasMoving && e.needed) t.caught++;
     }
     if (e.type === 'ended') {
-      this.requestDebrief(e.status === 'won' ? 'won' : 'lost', e.reason);
+      if (!this.isGuest) this.requestDebrief(e.status === 'won' ? 'won' : 'lost', e.reason);
       if (this.mode === 'overtime') this.best = saveOvertime(this.game.stats.deliveries);
       this.flushCrew();
       this.crewSaved = true;
@@ -1286,6 +1493,12 @@ export class ClearanceApp {
     if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign' && !this.finishedCampaign();
     if (this.retryBtn && this.mode === 'overtime') this.retryBtn.action = () => this.loadOvertime();
     if (this.retryBtn) this.retryBtn.mesh.visible = ended || p;
+    if (this.isGuest) {
+      // The host picks the shifts; the guest can pause, resume and leave.
+      if (this.nextBtn) this.nextBtn.mesh.visible = false;
+      if (this.retryBtn) this.retryBtn.mesh.visible = false;
+      for (const b of this.modeBtns) b.mesh.visible = false;
+    }
   }
 
   /** Gold halo on the floor under a robot with standing clearance; its segments count down. */
@@ -1309,7 +1522,7 @@ export class ClearanceApp {
     const g = this.game;
     const level = this.level;
     this.hud.draw({
-      level: this.mode === 'campaign' ? `${this.levelIndex + 1}. ${level.name}` : level.name,
+      level: `${this.coopActive ? 'Co-op · ' : ''}${this.mode === 'campaign' ? `${this.levelIndex + 1}. ${level.name}` : level.name}`,
       best: this.mode === 'overtime' ? Math.max(this.best, g.stats.deliveries) : undefined,
       note: g.status === 'playing' ? undefined : this.finishedCampaign() ? `All ${LEVELS.length} shifts done. Try the Daily Shift or Overtime above, or replay the campaign.` : fieldNote(level.id),
       campaignDone: this.finishedCampaign(),
@@ -1318,7 +1531,7 @@ export class ClearanceApp {
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held' && !p.gold).length,
       gold: level.permits.gold ? g.goldAvailable + g.permits.filter((p) => p.gold && p.state === 'held').length : undefined,
       timeLeft: g.timeLeft,
-      message: g.status !== 'playing' ? (this.debrief ? `Supervisor: ${this.debrief}` : verdictLine(g.calibration())) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
+      message: this.coopWaiting ? 'Connected. Waiting for the host to start a shift…' : g.status !== 'playing' ? (this.debrief ? `Supervisor: ${this.debrief}` : verdictLine(g.calibration())) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
       calibration: g.status === 'playing' ? undefined : g.calibration(),
       stars: g.status === 'won' ? g.score().stars : 0,
       result: g.status === 'playing' ? undefined : g.status,

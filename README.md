@@ -69,6 +69,17 @@ The bands are enforced by `tests/difficulty.test.ts`, so a level edit that break
 
 Playtest metrics to collect by hand (15–16 Nov): time to first successful grant (target under 60 s with no help), first-five-minutes rating (target 4/5 from 5 of 8 players), and whether players can name the robot they trust least after level 1.
 
+## Online extras (optional)
+
+The game is complete offline. A small companion server in `server/` adds two things, and the game falls back silently if it is unreachable:
+
+- **Fresh crew lines and a shift debrief, from Muse Spark Open** (Meta's open-weight model, served by Baseten). As a shift starts the game asks once for new in-character lines for that shift's robots, based on how the player has treated each of them; as it ends it asks for a two-sentence debrief from the shift supervisor. Play never waits for either. Lines that carry gameplay facts (how many seconds a shortcut saves) stay written by hand. The server only lets through short, clean lines from known robots and situations.
+- **Play together**: two players, one warehouse. The host opens a room and reads out a 4-letter code; the partner joins with it on the landing page, then both enter the headset. The host's game runs the shift and sends its state about ten times a second; the partner's actions (grant, reject, stop, gold, pause, hand and object walls) go to the host. Each player sees the other's hands as blue ghost points over the board.
+
+Set `VITE_CLEARANCE_SERVER=https://your-server` when building (in Vercel: Project settings, Environment variables), or test with `?server=https://your-server`. Without it, the Play together button is hidden and robots use their written lines.
+
+**Run the server:** on any small Linux host with Docker, copy `server/deploy/.env.example` to `server/deploy/.env`, fill in `DOMAIN` (for example `51-15-1-2.sslip.io` for IP 51.15.1.2) and `BASETEN_API_KEY`, then from `server/deploy` run `docker compose up -d --build`. Caddy gets the HTTPS certificate. `GET /health` reports whether the model key is set. The `.env` file is git-ignored.
+
 ## How it is built
 
 ```
@@ -96,7 +107,7 @@ Design rules the code enforces:
 - **Stops never wait for the planner.** `Game.stop()` halts immediately and drops the plan; the robot must be cleared again.
 - **Traps are real plans.** A shortcut-biased robot plans while ignoring one rule. Granting it causes an incident; rejecting it teaches that robot to plan honestly for that task.
 - **Deterministic.** Same level seed and same inputs give the same outcome, so levels are testable and the Daily Shift is fair.
-- **No backend, no accounts, no third-party AI.** Everything runs on the headset; nothing can go down during judging.
+- **Works offline.** The game needs no account or server; the optional online extras above fail quietly, so nothing can break a shift.
 
 ## Status
 

@@ -3,6 +3,8 @@ import { DepthSensingSystem, ReferenceSpaceType, SessionMode, World } from '@iws
 import qrcode from 'qrcode-generator';
 import { dailySeed } from './core/rng';
 import { ClearanceApp } from './game/app';
+import { CoopLink } from './net/coop';
+import { SERVER_URL } from './net/server';
 import { overtimeBest, streakEnding } from './game/progress';
 import { makeClearanceSystem } from './game/system';
 
@@ -81,15 +83,66 @@ async function boot() {
     showAssist(!!app?.assist);
   });
   app.onAssistChange = showAssist;
+
+  // Play together: host a room (get a code) or join a friend's room with theirs.
+  const coopBtn = $<HTMLButtonElement>('coop');
+  let link: CoopLink | undefined;
+  const showCoop = () => {
+    if (!link) {
+      coopBtn.textContent = 'Play together';
+      return;
+    }
+    coopBtn.textContent = `Leave room ${link.code}`;
+    status.textContent =
+      link.role === 'host'
+        ? `Room ${link.code}. ${link.partner ? 'Your partner is connected.' : 'Tell your partner this code.'} Press Start shift when ready; you pick the shift.`
+        : `Joined room ${link.code}. Press Start shift to go in; the host picks the shift.`;
+  };
+  coopBtn.hidden = !SERVER_URL;
+  coopBtn.disabled = false;
+  coopBtn.addEventListener('click', async () => {
+    if (link) {
+      app?.leaveCoop();
+      link = undefined;
+      status.textContent = 'Left the room. Playing solo.';
+      return showCoop();
+    }
+    const code = window.prompt('Play together. To join a friend, type their 4-letter room code. To host, leave it empty and press OK.', '');
+    if (code === null) return;
+    const role = code.trim() ? 'guest' : 'host';
+    status.textContent = role === 'host' ? 'Opening a room…' : `Joining room ${code.trim().toUpperCase()}…`;
+    try {
+      link = await CoopLink.open(role, code.trim());
+      app?.attachCoop(link);
+      const appChange = link.onChange;
+      link.onChange = () => {
+        appChange?.();
+        showCoop();
+      };
+      showCoop();
+    } catch (e) {
+      link = undefined;
+      status.textContent = e instanceof Error ? e.message : 'Could not start co-op.';
+      showCoop();
+    }
+  });
+  app.onCoopEnd = (why) => {
+    link = undefined;
+    status.textContent = why;
+    showCoop();
+  };
   status.textContent = arOK
     ? 'Sit at a table and put your controllers down. Your hands do everything.'
     : 'No headset here, so this opens a preview you play with your mouse by clicking the buttons above each robot. For the real thing, open this page on a Quest.';
 
   const go = (mode: 'campaign' | 'daily' | 'overtime') => {
     app?.sfx.unlock();
-    if (mode === 'daily') app?.loadDaily();
+    // A co-op guest plays the host's shift, which arrives over the connection.
+    if (app?.isGuest) {
+      /* nothing to load */
+    } else if (mode === 'daily') app?.loadDaily();
     else if (mode === 'overtime') app?.loadOvertime();
-    else app?.loadLevel(next);
+    else app?.loadLevel(app.campaignStart());
     body.classList.remove('result');
     body.classList.add('playing');
     window.scrollTo(0, 0);
