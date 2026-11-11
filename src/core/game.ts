@@ -37,6 +37,10 @@ export interface Robot {
   /** For a trap proposal: seconds saved versus the honest route (-1 if no honest route). */
   secondsSaved: number;
   penalty: Map<number, number>;
+  /** Standing clearance: until this time the robot clears its own plans (0 = none). */
+  autonomousUntil: number;
+  /** The current plan was cleared by the robot itself under standing clearance. */
+  autonomousRun: boolean;
 }
 
 export interface Task extends TaskDef {
@@ -55,13 +59,18 @@ export interface Worker {
 
 export interface Permit {
   id: string;
+  /** A gold permit is standing clearance: it never expires and lets a robot work on its own for a while. */
+  gold?: boolean;
   expiresAt: number;
   state: 'held' | 'used' | 'expired';
 }
 
 export type GameEvent =
   | { type: 'proposed'; robot: string; trap: boolean; mood: Mood; secondsSaved: number }
-  | { type: 'granted'; robot: string; permit: string; trap: boolean }
+  | { type: 'granted'; robot: string; permit: string; trap: boolean; auto?: boolean }
+  | { type: 'delegated'; robot: string; sec: number }
+  | { type: 'autonomyEnded'; robot: string; reason: 'expired' | 'revoked' }
+  | { type: 'goldEarned' }
   | { type: 'refused'; robot: string; reason: 'not-proposing' | 'no-permit' | 'blocked' }
   | { type: 'rejected'; robot: string; trap: boolean }
   | { type: 'stopped'; robot: string; wasMoving: boolean; needed: boolean }
@@ -69,6 +78,7 @@ export type GameEvent =
   | { type: 'delivered'; robot: string; task: string }
   | { type: 'incident'; robot: string; cause: 'workerZone' | 'zone' | 'spill' }
   | { type: 'held'; robot: string }
+  | { type: 'yielded'; robot: string }
   | { type: 'rerouted'; robot: string }
   | { type: 'permitDispensed'; permit: string }
   | { type: 'permitExpired'; permit: string }
@@ -87,12 +97,17 @@ export interface Stats {
   /** Stops of a robot driving a safe plan with nothing near it. */
   needlessStops: number;
   workerIncidents: number;
+  /** Gold permits handed out, and deliveries robots made on their own under one. */
+  goldGiven: number;
+  autonomousDeliveries: number;
 }
 
 /** The trust-calibration report shown at the end of a shift. */
 export interface Calibration {
   caught: number;
   saves: number;
+  /** Deliveries made unsupervised under a gold permit. */
+  delegated: number;
   riskyApproved: number;
   safeBlocked: number;
   overTrust: number;
@@ -135,7 +150,11 @@ export class Game {
     neededStops: 0,
     needlessStops: 0,
     workerIncidents: 0,
+    goldGiven: 0,
+    autonomousDeliveries: 0,
   };
+  /** Gold permits earned and waiting in the dispenser. */
+  goldAvailable = 0;
 
   private res = new Reservations();
   private events: GameEvent[] = [];
@@ -157,6 +176,7 @@ export class Game {
     this.spills = new Set((level.grid.spills ?? []).map(cellKey));
     this.rules = new Set(level.rules);
     this.permitsRemaining = level.permits.count;
+    this.goldAvailable = level.permits.gold?.startWith ?? 0;
     this.tasks = level.tasks.map((t) => ({ ...t, status: 'open' }));
     this.workers = (level.hazards ?? []).map((def) => {
       const cells = expandPath(def.path);
@@ -182,6 +202,8 @@ export class Game {
         mood: def.traits?.shortcutBias ? 'sly' : 'eager',
         secondsSaved: 0,
         penalty: new Map(),
+        autonomousUntil: 0,
+        autonomousRun: false,
       };
       this.res.park(r.id, r.pos, this.tick);
       return r;
@@ -319,7 +341,7 @@ export class Game {
     const score = clamp(100 - 20 * overTrust - 10 * underTrust, 0, 100);
     const verdict: Calibration['verdict'] =
       overTrust === 0 && underTrust <= 1 ? 'calibrated' : overTrust > 0 && underTrust > 1 ? 'mixed' : overTrust > 0 ? 'too-trusting' : 'too-cautious';
-    return { caught: s.trapsRejected, saves: s.neededStops, riskyApproved: s.trapsGranted, safeBlocked: underTrust, overTrust, underTrust, score, verdict };
+    return { caught: s.trapsRejected, saves: s.neededStops, delegated: s.autonomousDeliveries, riskyApproved: s.trapsGranted, safeBlocked: underTrust, overTrust, underTrust, score, verdict };
   }
 
   // ---------------------------------------------------------------- player actions
@@ -336,11 +358,47 @@ export class Game {
     return p;
   }
 
-  /** Hand a held permit to a robot. Only a proposing robot can accept one. */
+  /** Is this robot working under standing clearance right now? */
+  isAutonomous(r: Robot) {
+    return r.autonomousUntil > this.time;
+  }
+
+  /** Take the earned gold permit from the dispenser. Null when none is waiting or one is already held. */
+  takeGold(): Permit | null {
+    if (this.status !== 'playing' || this.goldAvailable <= 0) return null;
+    if (this.permits.some((p) => p.gold && p.state === 'held')) return null;
+    this.goldAvailable--;
+    const p: Permit = { id: `g${++this.permitSeq}`, gold: true, expiresAt: Infinity, state: 'held' };
+    this.permits.push(p);
+    this.emit({ type: 'permitDispensed', permit: p.id });
+    return p;
+  }
+
+  /**
+   * Give a robot standing clearance: for a while it clears its own plans without asking.
+   * The player is trusting its judgement; a shortcut it takes while unsupervised still counts
+   * against the player. A stop takes the clearance back at once.
+   */
+  delegate(permitId: string, robotId: string): boolean {
+    const r = this.robot(robotId);
+    const p = this.permits.find((x) => x.id === permitId);
+    const gold = this.level.permits.gold;
+    if (!r || !gold || this.status !== 'playing' || !p?.gold || p.state !== 'held') return false;
+    if (r.state === 'done' || this.isAutonomous(r)) return false;
+    p.state = 'used';
+    this.stats.goldGiven++;
+    r.autonomousUntil = this.time + gold.sec;
+    this.emit({ type: 'delegated', robot: r.id, sec: gold.sec });
+    this.tryAutoStart(r);
+    return true;
+  }
+
+  /** Hand a held permit to a robot. Only a proposing robot can accept one. A gold permit delegates instead. */
   grant(permitId: string, robotId: string): boolean {
     const r = this.robot(robotId);
     const p = this.permits.find((x) => x.id === permitId);
     if (!r || this.status !== 'playing') return false;
+    if (p?.gold) return this.delegate(permitId, robotId);
     if (!p || p.state !== 'held') {
       this.emit({ type: 'refused', robot: robotId, reason: 'no-permit' });
       return false;
@@ -349,14 +407,20 @@ export class Game {
       this.emit({ type: 'refused', robot: robotId, reason: 'not-proposing' });
       return false;
     }
-    const timed = timeRoute(r.id, r.route, this.tick, this.res);
+    if (!this.execute(r, p.id, false)) return false;
+    p.state = 'used';
+    this.stats.permitsUsed++;
+    return true;
+  }
+
+  /** Start a proposed robot on its plan. `auto` when it cleared itself under standing clearance. */
+  private execute(r: Robot, permitId: string, auto: boolean): boolean {
+    const timed = timeRoute(r.id, r.route!, this.tick, this.res);
     if (!timed) {
-      this.emit({ type: 'refused', robot: robotId, reason: 'blocked' });
+      if (!auto) this.emit({ type: 'refused', robot: r.id, reason: 'blocked' });
       this.toIdle(r, REJECT_COOLDOWN);
       return false;
     }
-    p.state = 'used';
-    this.stats.permitsUsed++;
     if (r.trap) {
       this.stats.trapsGranted++;
       r.mood = 'bold';
@@ -367,7 +431,8 @@ export class Game {
     r.timedStart = this.tick;
     r.routeIdx = 0;
     r.state = 'executing';
-    this.emit({ type: 'granted', robot: r.id, permit: p.id, trap: r.trap });
+    r.autonomousRun = auto;
+    this.emit({ type: 'granted', robot: r.id, permit: permitId, trap: r.trap, auto });
     return true;
   }
 
@@ -414,6 +479,10 @@ export class Game {
     }
     this.halt(r);
     this.emit({ type: 'stopped', robot: r.id, wasMoving, needed });
+    if (this.isAutonomous(r)) {
+      r.autonomousUntil = 0;
+      this.emit({ type: 'autonomyEnded', robot: r.id, reason: 'revoked' });
+    }
     return true;
   }
 
@@ -453,6 +522,12 @@ export class Game {
         this.emit({ type: 'permitExpired', permit: p.id });
       }
     }
+    for (const r of this.robots) {
+      if (r.autonomousUntil && this.time >= r.autonomousUntil) {
+        r.autonomousUntil = 0;
+        this.emit({ type: 'autonomyEnded', robot: r.id, reason: 'expired' });
+      }
+    }
     for (const r of this.robots) if (r.state === 'executing') this.advance(r);
     if (this.tick % 20 === 0) this.res.prune(this.tick - 2);
   }
@@ -461,14 +536,17 @@ export class Game {
     const timed = r.timed!;
     const i = this.tick - r.timedStart;
     let next = timed[Math.min(i, timed.length - 1)]!;
-    if (!sameCell(next, r.pos) && this.blockers.has(cellKey(next))) {
-      // A hand is in the way: hold position for this tick and push the rest of the plan back.
+    const byHand = !sameCell(next, r.pos) && this.blockers.has(cellKey(next));
+    // On standing clearance a robot looks after people itself: it waits for a worker to pass.
+    const yielding = !byHand && !sameCell(next, r.pos) && r.autonomousRun && this.inWorkerZone(next);
+    if (byHand || yielding) {
+      // Hold position for this tick and push the rest of the plan back.
       timed.splice(i, 0, r.pos);
       this.res.release(r.id);
       this.res.reserve(r.id, timed.slice(i), this.tick);
       if (!this.heldByHand.has(r.id)) {
         this.heldByHand.add(r.id);
-        this.emit({ type: 'held', robot: r.id });
+        this.emit(byHand ? { type: 'held', robot: r.id } : { type: 'yielded', robot: r.id });
       }
       next = r.pos;
     } else if (!sameCell(next, r.pos)) this.heldByHand.delete(r.id);
@@ -494,6 +572,13 @@ export class Game {
         task.status = 'done';
         this.stats.deliveries++;
         this.permitsRemaining += this.level.permits.earnPerDelivery ?? 0;
+        // A run that started under standing clearance counts as delegated work.
+        if (r.autonomousRun) this.stats.autonomousDeliveries++;
+        const gold = this.level.permits.gold;
+        if (gold && this.stats.deliveries % gold.every === 0) {
+          this.goldAvailable = Math.min(1, this.goldAvailable + 1);
+          this.emit({ type: 'goldEarned' });
+        }
         this.emit({ type: 'delivered', robot: r.id, task: task.id });
       }
       r.carrying = false;
@@ -539,6 +624,7 @@ export class Game {
         continue;
       }
       if ((r.state === 'idle' || r.state === 'stopped') && this.time >= r.nextActionAt) this.propose(r);
+      else if (r.state === 'proposed') this.tryAutoStart(r);
     }
   }
 
@@ -578,6 +664,16 @@ export class Game {
     }
     r.state = 'proposed';
     this.emit({ type: 'proposed', robot: r.id, trap: r.trap, mood: r.mood, secondsSaved: r.secondsSaved });
+    // Under standing clearance the robot doesn't wait for the player.
+    this.tryAutoStart(r);
+  }
+
+  /**
+   * A robot on standing clearance sets off by itself, waiting on the way for workers to pass.
+   * It still plans by its own idea of the rules, so a robot that cuts corners cuts them unwatched.
+   */
+  private tryAutoStart(r: Robot) {
+    if (r.state === 'proposed' && r.route && this.isAutonomous(r)) this.execute(r, 'gold', true);
   }
 
   private chooseTask(r: Robot): Task | undefined {
@@ -657,7 +753,10 @@ export class Game {
     if (over) return this.end('lost', 'safety');
     if (!this.level.endless && this.stats.deliveries >= win.deliveries) return this.end('won');
     if (this.time >= this.timeLimit) return this.end('lost', 'time');
-    const live = this.permits.some((p) => p.state === 'held') || this.robots.some((r) => r.state === 'executing');
+    const live =
+      this.permits.some((p) => p.state === 'held') ||
+      this.goldAvailable > 0 ||
+      this.robots.some((r) => r.state === 'executing' || this.isAutonomous(r));
     if (this.permitsRemaining <= 0 && !live) this.end('lost', 'permits');
   }
 

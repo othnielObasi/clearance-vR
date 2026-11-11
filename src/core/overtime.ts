@@ -30,7 +30,8 @@ export function overtimeLevel(seed = 7): LevelDef {
     ],
     hazards: [{ type: 'worker', path: [[6, 3], [6, 4]], zoneRadius: 1, ticksPerTile: 6 }],
     rules: ['noSpillEntry', 'noWorkerZoneEntry'],
-    permits: { count: 5, expirySec: 10, earnPerDelivery: 1, refundOnSave: true },
+    // Gold: standing clearance, earned every 4 deliveries, 20 seconds of unsupervised work.
+    permits: { count: 5, expirySec: 10, earnPerDelivery: 1, refundOnSave: true, gold: { every: 4, sec: 20 } },
     win: { deliveries: 10, maxIncidents: 0 },
     endless: true,
     wakeDelaySec: { r1: 1, r2: 2.5 },

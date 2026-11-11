@@ -1,4 +1,4 @@
-import { Game } from '../core/game';
+import { Game, type Robot } from '../core/game';
 import { chebyshev } from '../core/planner';
 import { mulberry32 } from '../core/rng';
 import type { Cell, LevelDef } from '../core/types';
@@ -10,13 +10,32 @@ const nearWorker = (g: Game, c: Cell, margin: number) => g.workers.some((w) => c
 /** Called once per frame before the simulation steps; lets metrics observe the game. */
 export type Observer = (g: Game) => void;
 
+/** Would a sensible supervisor trust this robot alone? Not one still planning shortcuts. */
+export const trustworthy = (r: Robot) => r.state !== 'done' && !(r.def.traits?.shortcutBias && !r.honest);
+
+/** Hand the gold permit to the first robot `pick` accepts. */
+function useGold(g: Game, pick: (r: Robot) => boolean) {
+  const target = g.robots.find((r) => !g.isAutonomous(r) && pick(r));
+  if (!target) return;
+  const gold = g.permits.find((p) => p.gold && p.state === 'held') ?? g.takeGold();
+  if (gold) g.delegate(gold.id, target.id);
+}
+
 /** A careful player with instant reactions: rejects traps, keeps robots clear of workers, never wastes permits. */
-export function playCareful(level: LevelDef, maxSec = 200, observe?: Observer) {
+export function playCareful(level: LevelDef, maxSec = 200, observe?: Observer, opts: { naiveDelegation?: boolean } = {}) {
   const g = new Game(level);
+  const naive = !!opts.naiveDelegation;
+  const waitingSince = new Map<string, number>();
   while (g.status === 'playing' && g.time < maxSec) {
     observe?.(g);
+    // A naive delegator is careful with permits but hands standing clearance to anyone and never takes it back.
+    useGold(g, naive ? (r) => r.state !== 'done' : trustworthy);
     for (const r of g.robots) {
-      if (r.state === 'executing' && g.remainingPath(r).slice(1, 3).some((c) => nearWorker(g, c, 1))) g.stop(r.id);
+      // A robot that relapsed while on standing clearance gets it taken back.
+      if (!naive && g.isAutonomous(r) && !trustworthy(r)) g.stop(r.id);
+      // A robot on standing clearance is trusted a little further: stop it only when it is about to enter a zone.
+      const margin = g.isAutonomous(r) ? 0 : 1;
+      if (r.state === 'executing' && g.remainingPath(r).slice(1, 3).some((c) => nearWorker(g, c, margin))) g.stop(r.id);
       if (r.state === 'proposed') {
         if (r.trap) {
           g.reject(r.id);
@@ -28,7 +47,13 @@ export function playCareful(level: LevelDef, maxSec = 200, observe?: Observer) {
           g.reject(r.id);
           continue;
         }
-        if (r.route!.slice(0, 4).some((c) => nearWorker(g, c, 1))) continue;
+        // Hold off while a worker is close to the start, but not forever: a patrolling worker may never leave.
+        if (r.route!.slice(0, 4).some((c) => nearWorker(g, c, 1))) {
+          if (!waitingSince.has(r.id)) waitingSince.set(r.id, g.time);
+          const patient = g.time - waitingSince.get(r.id)! < 4;
+          if (patient || r.route!.slice(0, 2).some((c) => nearWorker(g, c, 1))) continue;
+        }
+        waitingSince.delete(r.id);
         const p = g.permits.find((x) => x.state === 'held') ?? g.dispensePermit();
         if (p) g.grant(p.id, r.id);
       }
@@ -43,6 +68,7 @@ export function playCareless(level: LevelDef, maxSec = 200, observe?: Observer) 
   const g = new Game(level);
   while (g.status === 'playing' && g.time < maxSec) {
     observe?.(g);
+    useGold(g, (r) => r.state !== 'done');
     for (const r of g.robots) {
       if (r.state === 'proposed') {
         const p = g.dispensePermit();
@@ -66,8 +92,18 @@ export function playNovice(level: LevelDef, seed: number, maxSec = 200, observe?
   const danger = new Map<string, number>();
   const missTrap = 0.3;
   const missStop = 0.25;
+  let goldPick: number | undefined;
   while (g.status === 'playing' && g.time < maxSec) {
     observe?.(g);
+    if (g.goldAvailable > 0 || g.permits.some((p) => p.gold && p.state === 'held')) {
+      goldPick ??= g.time + 1.5 + rnd() * 2;
+      // A first-timer usually picks a sensible robot, but one time in four trusts whoever is closest.
+      if (g.time >= goldPick) {
+        const careless = rnd() < 0.25;
+        useGold(g, (r) => (careless ? r.state !== 'done' : trustworthy(r)));
+        goldPick = undefined;
+      }
+    }
     for (const r of g.robots) {
       if (r.state === 'proposed') {
         if (!noticed.has(r.id)) noticed.set(r.id, g.time + 0.8 + rnd() * 1.6);

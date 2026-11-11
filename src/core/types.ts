@@ -49,7 +49,9 @@ export interface LevelDef {
   tasks: TaskDef[];
   hazards?: WorkerDef[];
   rules: RuleId[];
-  permits: { count: number; expirySec: number; /** Permits earned back per delivery (Overtime). */ earnPerDelivery?: number; /** A stop that prevented harm gives its permit back. */ refundOnSave?: boolean };
+  permits: { count: number; expirySec: number; /** Permits earned back per delivery (Overtime). */ earnPerDelivery?: number; /** A stop that prevented harm gives its permit back. */ refundOnSave?: boolean;
+    /** Gold permits: standing clearance. One is earned every `every` deliveries; a robot holding one works unsupervised for `sec` seconds. */
+    gold?: { every: number; sec: number; startWith?: number } };
   win: { deliveries: number; maxIncidents?: number };
   timeLimitSec?: number;
   /** Endless shift: no win, no clock; ends at the first loss condition (Overtime). */
