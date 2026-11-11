@@ -56,6 +56,20 @@ async function boot() {
   else startBtn.textContent = done ? 'Replay the preview' : next > 0 ? `Continue the preview: level ${next + 1}` : 'Play the preview';
   dailyBtn.textContent = streak > 1 ? `Daily Shift, ${streak}-day streak` : 'Daily Shift';
   overtimeBtn.textContent = best > 0 ? `Overtime, best ${best}` : 'Overtime';
+
+  // Assist mode: the same setting as the Assist pill in the headset's pause menu.
+  const assistBtn = $<HTMLButtonElement>('assist');
+  const showAssist = (on: boolean) => {
+    assistBtn.textContent = on ? 'Assist: on' : 'Assist: off';
+    assistBtn.setAttribute('aria-pressed', String(on));
+  };
+  showAssist(app.assist);
+  assistBtn.disabled = false;
+  assistBtn.addEventListener('click', () => {
+    app?.setAssist(!app.assist);
+    showAssist(!!app?.assist);
+  });
+  app.onAssistChange = showAssist;
   status.textContent = arOK
     ? 'Sit at a table and put your controllers down. Your hands do everything.'
     : 'No headset here, so this opens a preview you play with your mouse by clicking the buttons above each robot. For the real thing, open this page on a Quest.';

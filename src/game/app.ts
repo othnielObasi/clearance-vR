@@ -35,13 +35,16 @@ import type { LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
-import { GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
+import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
-import { crewMemory, loadProgress, overtimeBest, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
+import { crewMemory, loadAssist, loadProgress, overtimeBest, saveAssist, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
+
+/** Robot buttons grow by this much in assist mode. */
+const ASSIST_SCALE = 1.4;
 
 type ButtonAction = () => void;
 interface Button {
@@ -144,6 +147,11 @@ export class ClearanceApp {
   private exitBtn?: Button;
   /** Switch mode without leaving the headset: shown when a shift ends or is paused. */
   private modeBtns: Button[] = [];
+  private assistBtns!: { on: Button; off: Button };
+  /** Accessibility: relaxed gestures, bigger robot buttons that are always shown. */
+  assist = loadAssist();
+  /** Called when assist mode is switched from inside the game. */
+  onAssistChange?: (on: boolean) => void;
   /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
   private palmBtn!: Button;
   private palmSide: 'left' | 'right' | null = null;
@@ -160,6 +168,7 @@ export class ClearanceApp {
   private tmp2 = new Vector3();
 
   constructor(private world: World) {
+    applyAssist(this.assist);
     // Soft image-based light from IWSDK's built-in room environment, plus a gentle key light.
     try {
       world.activeLevel.value?.addComponent(IBLTexture, { src: 'room', intensity: 0.55 });
@@ -310,6 +319,7 @@ export class ClearanceApp {
       b.mesh.rotation.x = -0.25;
       return b;
     });
+    this.makeAssistButtons();
 
     this.game.robots.forEach((r) => this.ensureRobotUI(r.id));
     // Bolt remembers being let through: he starts bold.
@@ -390,6 +400,33 @@ export class ClearanceApp {
     if (this.view) this.view.root.remove(this.hud.mesh);
     this.boardEntity?.dispose();
     this.boardEntity = undefined;
+  }
+
+  /** Switch assist mode on or off, and remember it on this device. */
+  setAssist(on: boolean) {
+    this.assist = on;
+    applyAssist(on);
+    saveAssist(on);
+  }
+
+  /**
+   * The Assist pill sits above the mode row. Two pills (on and off) share the spot and swap
+   * visibility, so pressing one never destroys the button being pressed.
+   */
+  private makeAssistButtons() {
+    const make = (on: boolean) => {
+      const b = this.addLabelButton(on ? 'Assist: on' : 'Assist: off', on ? COLORS.go : 0x5b6573, () => {
+        this.setAssist(!on);
+        this.onAssistChange?.(!on);
+        this.coach.say(!on ? 'Assist on: easier gestures, bigger buttons.' : 'Assist off.', 2.5);
+        // The other pill appears under the same finger: ignore it for a moment.
+        (on ? this.assistBtns.off : this.assistBtns.on).pressedAt = this.clock;
+      });
+      b.mesh.position.set(0, 0.266, farZOf(this.view) - 0.045);
+      b.mesh.rotation.x = -0.25;
+      return b;
+    };
+    this.assistBtns = { on: make(true), off: make(false) };
   }
 
   private addLabelButton(label: string, color: number, action: ButtonAction): Button {
@@ -1066,7 +1103,9 @@ export class ClearanceApp {
       // In the headset, poke buttons appear only when a hand comes near, to keep the table clean.
       // On desktop (no tracked hands) they are always shown.
       const hands = this.view.hands;
+      // Assist mode keeps them shown, so nobody has to reach to find them.
       const near =
+        this.assist ||
         hands.length === 0 ||
         hands.some((h) => this.view.robotWorld(r.id, this.tmp2).distanceTo(h) < 0.14);
       const proposed = playing && r.state === 'proposed' && near;
@@ -1076,10 +1115,13 @@ export class ClearanceApp {
       panel.reject.mesh.visible = proposed;
       panel.stop.mesh.visible = moving;
       panel.gold.mesh.visible = playing && near && r.state !== 'done' && !auto && this.goldOnOffer();
-      panel.grant.mesh.position.set(base.x - 0.014, 0.052, base.z);
-      panel.reject.mesh.position.set(base.x + 0.014, 0.052, base.z);
-      panel.stop.mesh.position.set(base.x, 0.052, base.z);
-      panel.gold.mesh.position.set(base.x, 0.078, base.z);
+      // Assist mode: bigger buttons, spread and raised so they don't touch.
+      const s = this.assist ? ASSIST_SCALE : 1;
+      for (const b of [panel.grant, panel.reject, panel.stop, panel.gold]) b.mesh.scale.setScalar(s);
+      panel.grant.mesh.position.set(base.x - 0.014 * s, 0.052 * s, base.z);
+      panel.reject.mesh.position.set(base.x + 0.014 * s, 0.052 * s, base.z);
+      panel.stop.mesh.position.set(base.x, 0.052 * s, base.z);
+      panel.gold.mesh.position.set(base.x, 0.078 * s, base.z);
       this.updateHalo(r.id, base, auto);
     }
     const p = this.userPaused;
@@ -1091,6 +1133,8 @@ export class ClearanceApp {
     const ended = this.game.status !== 'playing';
     if (this.exitBtn) this.exitBtn.mesh.visible = (p || ended) && !!this.world.session;
     for (const b of this.modeBtns) b.mesh.visible = ended || p;
+    this.assistBtns.on.mesh.visible = (ended || p) && this.assist;
+    this.assistBtns.off.mesh.visible = (ended || p) && !this.assist;
     // After the last level there is no next shift: the mode row takes over.
     if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign' && !this.finishedCampaign();
     if (this.retryBtn && this.mode === 'overtime') this.retryBtn.action = () => this.loadOvertime();
@@ -1133,6 +1177,10 @@ export class ClearanceApp {
       result: g.status === 'playing' ? undefined : g.status,
     });
   }
+}
+
+function farZOf(view: BoardView) {
+  return -view.depth / 2;
 }
 
 export { TILE };

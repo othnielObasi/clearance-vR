@@ -32,6 +32,25 @@ export function saveResult(levelIndex: number, levelId: string, stars: number, l
   }
 }
 
+const ASSIST_KEY = 'clearance.assist.v1';
+
+/** Assist mode (relaxed gestures, bigger always-on buttons), remembered on this device. */
+export function loadAssist(): boolean {
+  try {
+    return localStorage.getItem(ASSIST_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAssist(on: boolean) {
+  try {
+    localStorage.setItem(ASSIST_KEY, on ? '1' : '0');
+  } catch {
+    /* storage unavailable: the setting lasts this session */
+  }
+}
+
 const DAILY_KEY = 'clearance.daily.v1';
 
 interface DailyRecord {

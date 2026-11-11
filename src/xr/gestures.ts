@@ -15,6 +15,27 @@ export const GESTURE = {
   flickCooldown: 0.6,
 };
 
+const STANDARD = { ...GESTURE };
+
+/**
+ * Assist mode, for players with limited reach, grip or steadiness: pinches register
+ * further apart, a partly open hand counts as open, the palm can point less exactly,
+ * and a slower flick rejects. The hold times stay the same, so a resting hand
+ * still does not stop robots by accident.
+ */
+const RELAXED: Partial<typeof GESTURE> = {
+  pinchOn: 0.022,
+  pinchOff: 0.035,
+  openTipDist: 0.11,
+  palmConeCos: Math.cos((50 * Math.PI) / 180),
+  palmMaxDist: 0.75,
+  flickSpeed: 0.65,
+};
+
+export function applyAssist(on: boolean) {
+  Object.assign(GESTURE, STANDARD, on ? RELAXED : {});
+}
+
 export type Handedness = 'left' | 'right';
 
 export interface HandFrame {
