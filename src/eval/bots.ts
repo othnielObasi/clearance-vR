@@ -29,7 +29,9 @@ export function playCareful(level: LevelDef, maxSec = 200, observe?: Observer, o
   while (g.status === 'playing' && g.time < maxSec) {
     observe?.(g);
     // A naive delegator is careful with permits but hands standing clearance to anyone and never takes it back.
-    useGold(g, naive ? (r) => r.state !== 'done' : trustworthy);
+    // Spend a permit already in hand before delegating, so it doesn't fade unused.
+    const spare = g.permits.some((p) => p.state === 'held' && !p.gold);
+    if (naive || !spare) useGold(g, naive ? (r) => r.state !== 'done' : trustworthy);
     for (const r of g.robots) {
       // A robot that relapsed while on standing clearance gets it taken back.
       if (!naive && g.isAutonomous(r) && !trustworthy(r)) g.stop(r.id);

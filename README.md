@@ -18,10 +18,13 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Block a lane | Rest an open hand flat, palm-down, just above the board: waiting robots replan round it, moving robots wait for it | — |
 | See behind tall racking | Lean or tilt your head | Press the eye button (see-through racking) |
 | Pause | Turn one hand palm-up; poke the pause button that appears above it | Press ⏸ at the near-right corner |
+| Give standing clearance | Pinch the gold permit from its pad and drop it on any robot | Press ★ above the robot |
 
 Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
 
-Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals). Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card. And **Overtime**: an endless shift where tasks keep coming, new robots join as you score, reformed robots relapse, and every delivery earns a permit back; it ends at your first safety mistake. A stop that genuinely prevents harm refunds its permit; taking a permit straight back does not count.
+Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits: more work than permits, so you must delegate, and delegating to the wrong robot loses the shift).
+
+**Standing clearance (gold permits).** Some modes earn a gold permit every few deliveries (Overtime: every 4; Standing Orders: every 2, starting with one). Hand it to a robot and for 20 seconds it clears its own plans, shown by a gold halo that counts down. A robot on its own waits for workers to pass by itself, but it still plans by its own idea of the rules: a robot that is still cutting corners will take a shortcut unwatched, and that counts as a risk you let through. A stop takes the gold back at once. In Overtime, a reformed robot can relapse while holding gold. The decision moves from "is this plan safe?" to "who has earned autonomy, and when do I take it back?". Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card. And **Overtime**: an endless shift where tasks keep coming, new robots join as you score, reformed robots relapse, and every delivery earns a permit back; it ends at your first safety mistake. A stop that genuinely prevents harm refunds its permit; taking a permit straight back does not count.
 
 **The crew.** Bolt (orange, rule-bender), Pip (teal, careful), Rook (purple, steady) and Juno (pink, speedy) appear across all modes. Each remembers how you treated them between sessions (caught, let through, stopped for nothing, saved) and greets you accordingly. Bolt starts bold if you have let his shortcuts through more often than you caught them.
 
@@ -58,6 +61,7 @@ npm run build      # static build in dist/
 | Pressure | Share of novice play time with 2+ robots asking at once | ≥15% from level 3 |
 | Decisions per minute | How busy the player is | Rises across levels |
 | Trust calibration (per shift) | Over-trust (risky approved, worker incidents) vs under-trust (safe plans blocked, needless stops) | Careful play scores "calibrated" |
+| Delegation (gold modes) | A careful player who gives gold only to trustworthy robots, against one who gives it to anyone, over the same Overtime seeds | Wise delivers more; only naive lets shortcuts through |
 
 The bands are enforced by `tests/difficulty.test.ts`, so a level edit that breaks the difficulty curve fails CI. The Daily Shift generator only accepts a candidate level if the careful bot gets 3 stars, the careless bot cannot, and novices win 4–9 of 10 runs.
 
@@ -94,6 +98,6 @@ Design rules the code enforces:
 
 ## Status
 
-Day 1 of 13. Working: core simulation and levels 1–4 (23 passing tests; a careful bot wins every level with 3 stars, a careless one loses the safety levels), desktop preview, button play, permit tokens, pinch-grab, palm-stop and flick detection.
+Working: core simulation, levels 1–5, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (59 passing tests; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
 
-Not yet verified on a headset: hand-gesture thresholds, passthrough placement height and performance. Planned next: device tuning, ghost-hand tutorial, teach-and-release levels 5–6, levels 7–8, Daily Shift.
+Not yet verified on a headset: hand-gesture thresholds, passthrough placement height and performance.

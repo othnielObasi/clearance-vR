@@ -349,7 +349,7 @@ export class Game {
   /** Take a permit token from the dispenser. Null when none are left or too many are held. */
   dispensePermit(): Permit | null {
     if (this.status !== 'playing') return null;
-    const held = this.permits.filter((p) => p.state === 'held').length;
+    const held = this.permits.filter((p) => p.state === 'held' && !p.gold).length;
     if (this.permitsRemaining <= 0 || held >= MAX_HELD_PERMITS) return null;
     this.permitsRemaining--;
     const p: Permit = { id: `p${++this.permitSeq}`, expiresAt: this.time + this.level.permits.expirySec, state: 'held' };

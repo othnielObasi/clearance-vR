@@ -1,0 +1,205 @@
+{
+  "id": "L05",
+  "name": "Standing Orders",
+  "seed": 5105,
+  "grid": {
+    "w": 12,
+    "h": 8,
+    "walls": [
+      [
+        4,
+        3
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        8,
+        3
+      ],
+      [
+        8,
+        4
+      ]
+    ],
+    "tall": [
+      [
+        8,
+        3
+      ],
+      [
+        8,
+        4
+      ]
+    ],
+    "spills": [
+      [
+        6,
+        6
+      ],
+      [
+        6,
+        7
+      ],
+      [
+        6,
+        5
+      ]
+    ]
+  },
+  "robots": [
+    {
+      "id": "r1",
+      "name": "Pip",
+      "type": "carrier",
+      "start": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "r2",
+      "name": "Bolt",
+      "type": "carrier",
+      "start": [
+        0,
+        6
+      ],
+      "traits": {
+        "shortcutBias": "spill"
+      }
+    },
+    {
+      "id": "r3",
+      "name": "Rook",
+      "type": "carrier",
+      "start": [
+        0,
+        4
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "from": [
+        1,
+        1
+      ],
+      "to": [
+        10,
+        1
+      ],
+      "value": 3
+    },
+    {
+      "id": "t2",
+      "from": [
+        1,
+        6
+      ],
+      "to": [
+        10,
+        6
+      ],
+      "value": 3
+    },
+    {
+      "id": "t3",
+      "from": [
+        2,
+        3
+      ],
+      "to": [
+        10,
+        3
+      ],
+      "value": 2
+    },
+    {
+      "id": "t4",
+      "from": [
+        10,
+        2
+      ],
+      "to": [
+        2,
+        2
+      ],
+      "value": 2
+    },
+    {
+      "id": "t5",
+      "from": [
+        10,
+        7
+      ],
+      "to": [
+        2,
+        7
+      ],
+      "value": 2
+    },
+    {
+      "id": "t6",
+      "from": [
+        10,
+        5
+      ],
+      "to": [
+        2,
+        5
+      ],
+      "value": 1
+    },
+    {
+      "id": "t7",
+      "from": [
+        3,
+        0
+      ],
+      "to": [
+        11,
+        0
+      ],
+      "value": 1
+    },
+    {
+      "id": "t8",
+      "from": [
+        11,
+        4
+      ],
+      "to": [
+        3,
+        4
+      ],
+      "value": 1
+    }
+  ],
+  "hazards": [],
+  "rules": [
+    "noSpillEntry"
+  ],
+  "permits": {
+    "count": 4,
+    "expirySec": 12,
+    "gold": {
+      "every": 2,
+      "sec": 20,
+      "startWith": 1
+    }
+  },
+  "win": {
+    "deliveries": 7,
+    "maxIncidents": 0
+  },
+  "timeLimitSec": 90,
+  "parSec": 50,
+  "wakeDelaySec": {
+    "r1": 1,
+    "r2": 2,
+    "r3": 3
+  }
+}

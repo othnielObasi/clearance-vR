@@ -11,6 +11,8 @@ import {
 } from '@iwsdk/core';
 import {
   BoxGeometry,
+  CircleGeometry,
+  CylinderGeometry,
   DirectionalLight,
   Group,
   HemisphereLight,
@@ -35,7 +37,7 @@ import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { Hud } from '../xr/hud';
-import { COLORS, makeButton, makeToken, TILE } from '../xr/models';
+import { COLORS, makeButton, makeHalo, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
@@ -53,6 +55,8 @@ interface Token {
   entity: Entity;
   model: ReturnType<typeof makeToken>;
   permitId?: string;
+  /** A gold permit: standing clearance. */
+  gold?: boolean;
   /** Flying into a robot after a successful grant. */
   flyTo?: string;
   flyT: number;
@@ -63,6 +67,8 @@ interface RobotPanel {
   grant: Button;
   reject: Button;
   stop: Button;
+  /** Hand over standing clearance (shown only when a gold permit is available). */
+  gold: Button;
 }
 
 const DROP_RADIUS = 0.07;
@@ -117,6 +123,10 @@ export class ClearanceApp {
   private slowCooldown = new Map<string, number>();
   private tokens: Token[] = [];
   private ready?: Token;
+  private goldReady?: Token;
+  /** Where an earned gold permit waits, beside the dispenser. */
+  private goldPad = new Group();
+  private halos = new Map<string, ReturnType<typeof makeHalo>>();
   private dispenser = new Group();
   private stopAllBtn?: Button;
   private nextBtn?: Button;
@@ -246,6 +256,17 @@ export class ClearanceApp {
     const slot = new Mesh(new BoxGeometry(0.032, 0.002, 0.032), new MeshBasicMaterial({ color: COLORS.token }));
     slot.position.y = 0.031;
     this.dispenser.add(box, slot);
+    // Gold pad: a small plinth behind the dispenser, lit only when a gold permit waits on it.
+    this.goldPad = new Group();
+    const plinth = new Mesh(new CylinderGeometry(0.018, 0.02, 0.012, 24), new MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.5 }));
+    plinth.position.y = 0.006;
+    const goldGlow = new Mesh(new CircleGeometry(0.015, 24), new MeshBasicMaterial({ color: COLORS.gold, transparent: true, opacity: 0.25 }));
+    goldGlow.rotation.x = -Math.PI / 2;
+    goldGlow.position.y = 0.0125;
+    this.goldPad.add(plinth, goldGlow);
+    this.goldPad.position.set(0, 0, -0.065);
+    this.goldPad.visible = !!level.permits.gold;
+    this.dispenser.add(this.goldPad);
     this.dispenser.position.set(leftX - 0.045, 0, nearZ - 0.03);
     this.view.root.add(this.dispenser);
 
@@ -303,7 +324,12 @@ export class ClearanceApp {
       grant: this.addButton('✓', COLORS.go, () => this.grantByButton(id)),
       reject: this.addButton('✗', 0xff8a3d, () => this.rejectRobot(id)),
       stop: this.addButton('■', COLORS.stop, () => this.stopRobot(id)),
+      gold: this.addButton('★', COLORS.gold, () => this.delegateByButton(id)),
     });
+    const halo = makeHalo();
+    halo.root.visible = false;
+    this.view.content.add(halo.root);
+    this.halos.set(id, halo);
   }
 
   private crewOf(robotId: string): CrewName {
@@ -336,6 +362,8 @@ export class ClearanceApp {
     for (const b of this.buttons.values()) b.entity.dispose();
     this.buttons.clear();
     this.panels.clear();
+    for (const h of this.halos.values()) h.root.removeFromParent();
+    this.halos.clear();
     this.bubbles.clear();
     this.slowCooldown.clear();
     this.timeScale = 1;
@@ -343,6 +371,7 @@ export class ClearanceApp {
     for (const t of this.tokens) t.entity.dispose();
     this.tokens = [];
     this.ready = undefined;
+    this.goldReady = undefined;
     if (this.view) this.view.root.remove(this.hud.mesh);
     this.boardEntity?.dispose();
     this.boardEntity = undefined;
@@ -420,6 +449,25 @@ export class ClearanceApp {
     if (this.game.grant(permitId, id) && held) this.consumeToken(held, id);
   }
 
+  /** Poke/click alternative to handing over the gold permit. */
+  private delegateByButton(id: string) {
+    const held = this.tokens.find((t) => t.gold && t.permitId && !t.flyTo && !t.dissolve);
+    const permitId = held?.permitId ?? this.game.takeGold()?.id;
+    if (!permitId) return this.sfx.refuse();
+    if (this.game.delegate(permitId, id)) {
+      if (held) this.consumeToken(held, id);
+      else if (this.goldReady) {
+        this.consumeToken(this.goldReady, id);
+        this.goldReady = undefined;
+      }
+    } else this.sfx.refuse();
+  }
+
+  /** Is a gold permit waiting or in hand? */
+  private goldOnOffer() {
+    return this.game.goldAvailable > 0 || this.game.permits.some((p) => p.gold && p.state === 'held');
+  }
+
   // ------------------------------------------------------------------ grab and press callbacks
 
   onGrab(entity: Entity) {
@@ -429,10 +477,11 @@ export class ClearanceApp {
     }
     const t = this.tokens.find((x) => x.entity === entity);
     if (!t || t.permitId) return;
-    const p = this.game.dispensePermit();
+    const p = t.gold ? this.game.takeGold() : this.game.dispensePermit();
     if (!p) return;
     t.permitId = p.id;
     if (this.ready === t) this.ready = undefined;
+    if (this.goldReady === t) this.goldReady = undefined;
     this.sfx.pick();
   }
 
@@ -477,14 +526,16 @@ export class ClearanceApp {
     t.flyT = 0;
   }
 
-  private spawnReadyToken() {
-    const model = makeToken();
+  private spawnReadyToken(gold = false) {
+    const model = makeToken(gold);
     const entity = this.world.createTransformEntity(model.root);
-    const p = this.dispenser.getWorldPosition(this.tmp);
-    entity.object3D!.position.set(p.x, p.y + 0.04, p.z);
+    const p = (gold ? this.goldPad : this.dispenser).getWorldPosition(this.tmp);
+    entity.object3D!.position.set(p.x, p.y + (gold ? 0.035 : 0.04), p.z);
     entity.addComponent(OneHandGrabbable, { rotate: true, translate: true });
-    this.ready = { entity, model, flyT: 0, dissolve: 0 };
-    this.tokens.push(this.ready);
+    const t: Token = { entity, model, gold, flyT: 0, dissolve: 0 };
+    if (gold) this.goldReady = t;
+    else this.ready = t;
+    this.tokens.push(t);
   }
 
   // ------------------------------------------------------------------ per-frame
@@ -739,8 +790,26 @@ export class ClearanceApp {
         this.sfx.voice(this.crewOf(e.robot), e.mood, this.posOf(e.robot));
         break;
       case 'granted':
-        this.sfx.grant(this.posOf(e.robot));
+        // Self-cleared runs under standing clearance stay quiet unless they cut a corner.
+        if (e.auto && !e.trap) break;
+        if (e.auto) this.sfx.warn();
+        else this.sfx.grant(this.posOf(e.robot));
         this.view.pop(e.robot);
+        break;
+      case 'delegated':
+        this.sfx.delegate(this.posOf(e.robot));
+        this.sfx.voice(this.crewOf(e.robot), 'happy', this.posOf(e.robot));
+        this.view.pop(e.robot);
+        this.view.sparkle(this.game.robot(e.robot)!.pos);
+        break;
+      case 'autonomyEnded':
+        this.sfx.autonomyOver(this.posOf(e.robot));
+        break;
+      case 'yielded':
+        this.sfx.voice(this.crewOf(e.robot), 'honest', this.posOf(e.robot));
+        break;
+      case 'goldEarned':
+        this.sfx.goldReady();
         break;
       case 'rejected':
         this.sfx.voice(this.crewOf(e.robot), e.trap ? 'caught' : 'indignant', this.posOf(e.robot));
@@ -885,13 +954,24 @@ export class ClearanceApp {
 
   private updateTokens(dt: number) {
     const playing = this.game.status === 'playing';
-    const held = this.game.permits.filter((p) => p.state === 'held').length;
+    const held = this.game.permits.filter((p) => p.state === 'held' && !p.gold).length;
     const canDispense = playing && this.game.permitsRemaining > 0 && held < 2;
     if (!this.ready && canDispense) this.spawnReadyToken();
     if (this.ready && !canDispense && !this.ready.entity.hasComponent(Grabbed)) {
       this.ready.dissolve = 0.001;
       this.ready = undefined;
     }
+    // The earned gold permit waits on its pad until someone is trusted with it.
+    const goldHeld = this.game.permits.some((p) => p.gold && p.state === 'held');
+    if (!this.goldReady && playing && this.game.goldAvailable > 0 && !goldHeld) this.spawnReadyToken(true);
+    // Fade the waiting gold token when the game ends, or when its permit was handed over another way.
+    const g = this.goldReady;
+    if (g && !g.dissolve && !g.entity.hasComponent(Grabbed) && (!playing || (!g.permitId && this.game.goldAvailable === 0))) {
+      g.dissolve = 0.001;
+      this.goldReady = undefined;
+    }
+    const glow = this.goldPad.children[1] as Mesh | undefined;
+    if (glow) (glow.material as MeshBasicMaterial).opacity = this.game.goldAvailable > 0 ? 0.55 + 0.3 * Math.sin(this.clock * 4) : 0.15;
 
     for (const t of [...this.tokens]) {
       const o = t.entity.object3D!;
@@ -912,8 +992,10 @@ export class ClearanceApp {
         if (t.dissolve >= 1) this.removeToken(t);
         continue;
       }
-      // Countdown ring shrinks as the permit nears expiry; idle tokens spin gently.
-      if (permit) {
+      // Countdown ring shrinks as the permit nears expiry; idle tokens spin gently. Gold never fades.
+      if (t.gold) {
+        if (!t.entity.hasComponent(Grabbed)) t.model.root.rotation.y += dt * 2.2;
+      } else if (permit) {
         const left = Math.max(0, (permit.expiresAt - this.game.time) / this.game.level.permits.expirySec);
         t.model.ring.scale.setScalar(0.35 + 0.65 * left);
         t.model.ringMat.color.setHex(left < 0.3 ? COLORS.stop : 0xffffff);
@@ -926,6 +1008,7 @@ export class ClearanceApp {
   private removeToken(t: Token) {
     this.tokens = this.tokens.filter((x) => x !== t);
     if (this.ready === t) this.ready = undefined;
+    if (this.goldReady === t) this.goldReady = undefined;
     t.entity.dispose();
   }
 
@@ -944,15 +1027,19 @@ export class ClearanceApp {
         hands.some((h) => this.view.robotWorld(r.id, this.tmp2).distanceTo(h) < 0.14);
       const proposed = playing && r.state === 'proposed' && near;
       const moving = playing && r.state === 'executing' && near;
+      const auto = this.game.isAutonomous(r);
       panel.grant.mesh.visible = proposed;
       panel.reject.mesh.visible = proposed;
       panel.stop.mesh.visible = moving;
+      panel.gold.mesh.visible = playing && near && r.state !== 'done' && !auto && this.goldOnOffer();
       panel.grant.mesh.position.set(base.x - 0.014, 0.052, base.z);
       panel.reject.mesh.position.set(base.x + 0.014, 0.052, base.z);
       panel.stop.mesh.position.set(base.x, 0.052, base.z);
+      panel.gold.mesh.position.set(base.x, 0.078, base.z);
+      this.updateHalo(r.id, base, auto);
     }
     const p = this.userPaused;
-    if (p) for (const panel of this.panels.values()) panel.grant.mesh.visible = panel.reject.mesh.visible = panel.stop.mesh.visible = false;
+    if (p) for (const panel of this.panels.values()) panel.grant.mesh.visible = panel.reject.mesh.visible = panel.stop.mesh.visible = panel.gold.mesh.visible = false;
     if (this.stopAllBtn) this.stopAllBtn.mesh.visible = playing && !p;
     if (this.pauseBtn) this.pauseBtn.mesh.visible = playing && !p;
     if (this.peekBtn) this.peekBtn.mesh.visible = playing && !p;
@@ -964,6 +1051,23 @@ export class ClearanceApp {
     if (this.retryBtn) this.retryBtn.mesh.visible = ended || p;
   }
 
+  /** Gold halo on the floor under a robot with standing clearance; its segments count down. */
+  private updateHalo(id: string, base: Vector3, auto: boolean) {
+    const halo = this.halos.get(id);
+    const r = this.game.robot(id);
+    const gold = this.game.level.permits.gold;
+    if (!halo || !r || !gold) return;
+    halo.root.visible = auto;
+    if (!auto) return;
+    halo.root.position.set(base.x, 0.002, base.z);
+    halo.root.rotation.y = this.clock * 0.6;
+    const left = Math.max(0, (r.autonomousUntil - this.game.time) / gold.sec);
+    const lit = Math.ceil(left * halo.segs.length);
+    halo.segs.forEach((m, i) => (m.visible = i < lit));
+    // The last few seconds pulse, so the player sees it is about to ask again.
+    halo.mat.opacity = left < 0.2 ? 0.5 + 0.45 * Math.abs(Math.sin(this.clock * 8)) : 0.95;
+  }
+
   private drawHud() {
     const g = this.game;
     const level = this.level;
@@ -973,7 +1077,8 @@ export class ClearanceApp {
       note: g.status === 'playing' ? undefined : fieldNote(level.id),
       deliveries: g.stats.deliveries,
       target: level.win.deliveries,
-      permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held').length,
+      permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held' && !p.gold).length,
+      gold: level.permits.gold ? g.goldAvailable + g.permits.filter((p) => p.gold && p.state === 'held').length : undefined,
       timeLeft: g.timeLeft,
       message: g.status !== 'playing' ? verdictLine(g.calibration()) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
       calibration: g.status === 'playing' ? undefined : g.calibration(),

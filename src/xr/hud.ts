@@ -6,6 +6,8 @@ export interface HudState {
   deliveries: number;
   target: number;
   permits: number;
+  /** Gold permits waiting or in hand (standing clearance), when the mode has them. */
+  gold?: number;
   timeLeft: number;
   message: string;
   stars?: number;
@@ -76,12 +78,14 @@ export class Hud {
         const items: [string, number, boolean][] = [
           ['Caught', c.caught, false],
           ['Saves', c.saves, false],
+          ...(s.gold !== undefined ? [['Delegated', c.delegated, false] as [string, number, boolean]] : []),
           ['Risks let through', c.overTrust, c.overTrust > 0],
           ['Safe blocked', c.safeBlocked, c.safeBlocked > 1],
         ];
+        const step = items.length > 4 ? 192 : 240;
         items.forEach(([label, n, bad], i) => {
-          const x = 44 + i * 240;
-          g.font = '28px system-ui, sans-serif';
+          const x = 44 + i * step;
+          g.font = items.length > 4 ? '24px system-ui, sans-serif' : '28px system-ui, sans-serif';
           g.fillStyle = '#9aa3ad';
           g.fillText(label, x, 196);
           g.font = '600 40px system-ui, sans-serif';
@@ -108,6 +112,13 @@ export class Hud {
         g.font = '600 58px system-ui, sans-serif';
         g.fillStyle = label === 'Time' && s.timeLeft < 15 ? '#ff6b6b' : '#ffffff';
         g.fillText(value!, x, 196);
+        if (label === 'Permits' && s.gold) {
+          // Gold permits sit beside the count as stars.
+          const w = g.measureText(value!).width;
+          g.fillStyle = '#ffc93c';
+          g.font = '600 46px system-ui, sans-serif';
+          g.fillText(' ★'.repeat(s.gold), x + w + 6, 192);
+        }
       });
     }
 

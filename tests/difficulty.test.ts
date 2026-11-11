@@ -8,6 +8,7 @@ const BANDS: Record<string, { win: [number, number]; minPressure: number }> = {
   L02: { win: [0.7, 0.95], minPressure: 0 },
   L03: { win: [0.5, 0.8], minPressure: 0.15 },
   L04: { win: [0.45, 0.8], minPressure: 0.15 },
+  L05: { win: [0.6, 0.9], minPressure: 0 },
 };
 
 describe('difficulty curve', () => {

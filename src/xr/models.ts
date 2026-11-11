@@ -37,6 +37,7 @@ export const COLORS = {
   worker: 0x2f6fde,
   hat: 0xffd23f,
   token: 0x58f0a0,
+  gold: 0xffc93c,
   robot: [0xff8a3d, 0x2ec4b6, 0x9b5de5, 0xf15bb5],
 } as const;
 
@@ -164,11 +165,12 @@ export function makeWall(): Mesh {
 }
 
 /** The permit token: a glowing disc with a countdown ring. */
-export function makeToken(): { root: Group; ring: Mesh; ringMat: MeshBasicMaterial; disc: Mesh } {
+export function makeToken(gold = false): { root: Group; ring: Mesh; ringMat: MeshBasicMaterial; disc: Mesh } {
   const root = new Group();
+  const color = gold ? COLORS.gold : COLORS.token;
   const disc = new Mesh(
-    new CylinderGeometry(0.012, 0.012, 0.004, 24),
-    std(COLORS.token, { emissive: new Color(COLORS.token), emissiveIntensity: 0.6 }),
+    new CylinderGeometry(gold ? 0.014 : 0.012, gold ? 0.014 : 0.012, gold ? 0.005 : 0.004, 24),
+    std(color, { emissive: new Color(color), emissiveIntensity: gold ? 0.8 : 0.6, metalness: gold ? 0.6 : 0, roughness: gold ? 0.3 : 0.6 }),
   );
   const mark = new Mesh(new BoxGeometry(0.012, 0.0045, 0.003), std(0xffffff));
   mark.rotation.y = Math.PI / 4;
@@ -176,7 +178,35 @@ export function makeToken(): { root: Group; ring: Mesh; ringMat: MeshBasicMateri
   const ring = new Mesh(new TorusGeometry(0.0145, 0.0012, 6, 32), ringMat);
   ring.rotation.x = Math.PI / 2;
   root.add(disc, mark, ring);
+  if (gold) {
+    // A second, crossed mark: the gold permit reads as a star at a glance.
+    const mark2 = mark.clone();
+    mark2.rotation.y = -Math.PI / 4;
+    root.add(mark2);
+    ring.scale.setScalar(1.15);
+  }
   return { root, ring, ringMat, disc };
+}
+
+/**
+ * Gold halo round a robot on standing clearance: a ring of segments on the floor that
+ * go out one by one as the clearance runs down.
+ */
+export function makeHalo(segments = 16): { root: Group; segs: Mesh[]; mat: MeshBasicMaterial } {
+  const root = new Group();
+  const mat = new MeshBasicMaterial({ color: COLORS.gold, transparent: true, opacity: 0.95, depthWrite: false });
+  const segs: Mesh[] = [];
+  const gap = 0.18;
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const geo = new RingGeometry(0.03, 0.037, 4, 1, a + gap / segments, (Math.PI * 2) / segments - (2 * gap) / segments);
+    const m = new Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2;
+    m.renderOrder = 5;
+    segs.push(m);
+    root.add(m);
+  }
+  return { root, segs, mat };
 }
 
 /** Round push button with an icon face toward the player (+z); pokeable and ray-clickable. */

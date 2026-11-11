@@ -74,7 +74,11 @@ export class OvertimeDirector {
       this.lastRelapseAt = g.stats.deliveries;
       const reformed = g.robots.filter((r) => r.honest);
       const pick = reformed[Math.floor(this.rnd() * reformed.length)];
-      if (pick && g.relapse(pick.id)) this.announcements.push(`${pick.def.name ?? pick.id} is feeling lucky again.`);
+      if (pick && g.relapse(pick.id)) {
+        const name = pick.def.name ?? pick.id;
+        // Relapsing while trusted alone is the moment to take the gold back.
+        this.announcements.push(g.isAutonomous(pick) ? `${name} has your gold and is feeling lucky…` : `${name} is feeling lucky again.`);
+      }
     }
 
     // The worker hurries as the shift goes on.

@@ -6,6 +6,7 @@ const INTRO: Record<string, string> = {
   L02: 'Workers first. Open your palm at a robot to stop it.',
   L03: 'Only 4 permits. Each fades 8 s after you take it.',
   L04: 'Some plans look fast but break the rules.',
+  L05: 'Too few permits. Give the gold one to a robot you trust.',
   OVERTIME: 'Keep it running. One safety mistake ends the shift.',
   DAILY: "Today's shift. Same board for everyone.",
 };
@@ -23,6 +24,10 @@ const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
   L03: {
     permitExpired: 'A permit faded. Take one only when a robot asks.',
   },
+  L05: {
+    delegated: 'Gold: it clears itself for 20 s. Palm stops it.',
+    goldEarned: 'Another gold permit. Who has earned it?',
+  },
 };
 
 /** Tips shown once per level whenever they first become relevant, in any level. */
@@ -30,6 +35,10 @@ const ANYWHERE: Record<string, string> = {
   held: 'Your hand is a wall: robots wait for it.',
   rerouted: 'It found a way round your hand.',
   lean: 'Tall racking hides things. Lean to look, or press the eye.',
+  goldEarned: 'Gold permit: give it to a robot you trust.',
+  delegated: 'It works alone now. Your palm still stops it.',
+  yielded: 'Trusted robots wait for people by themselves.',
+  goldTrap: 'Unsupervised shortcut! Stop it to take the gold back.',
 };
 
 const LOSS: Record<LossReason, string> = {
@@ -81,7 +90,8 @@ export class Coach {
         else this.first('proposed');
         break;
       case 'granted':
-        this.first('granted');
+        if (e.auto && e.trap) this.tip('goldTrap');
+        else if (!e.auto) this.first('granted');
         break;
       case 'rejected':
         if (e.trap) this.first('trapRejected');
@@ -91,6 +101,11 @@ export class Coach {
         break;
       case 'held':
       case 'rerouted':
+      case 'goldEarned':
+      case 'delegated':
+        if (!this.first(e.type)) this.tip(e.type);
+        break;
+      case 'yielded':
         this.tip(e.type);
         break;
       case 'permitExpired':

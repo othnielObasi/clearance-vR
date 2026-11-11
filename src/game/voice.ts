@@ -25,6 +25,8 @@ export function proposalLine(r: Pick<Robot, 'trap' | 'mood' | 'secondsSaved'>): 
 export function reactionLine(e: GameEvent): string | null {
   switch (e.type) {
     case 'granted':
+      // Under standing clearance a robot only speaks up when it cuts a corner.
+      if (e.auto) return e.trap ? 'Nobody watching…' : null;
       return e.trap ? 'Heh. On it!' : 'On it!';
     case 'rejected':
       return e.trap ? 'Caught me…' : 'But it was safe!';
@@ -35,6 +37,12 @@ export function reactionLine(e: GameEvent): string | null {
       return 'Delivered!';
     case 'held':
       return 'Hand in the way!';
+    case 'delegated':
+      return "I've got this!";
+    case 'yielded':
+      return 'After you.';
+    case 'autonomyEnded':
+      return e.reason === 'expired' ? 'Back to asking.' : 'Fair enough.';
     case 'rerouted':
       return 'Okay, going round.';
     case 'incident':
@@ -104,6 +112,8 @@ export function fieldNote(levelId: string): string {
       return 'Field note: approvals that expire limit what a stale "yes" can do later.';
     case 'L04':
       return 'Field note: optimisers can find shortcuts that meet the goal but break the rules. Review the plan.';
+    case 'L05':
+      return 'Field note: autonomy is best granted by track record, and must stay revocable.';
     case 'OVERTIME':
       return 'Field note: people grow complacent with automation that usually works. Keep checking.';
     default:

@@ -177,6 +177,21 @@ export class Sfx {
     this.tone(1046, 0.08, 'triangle', 0.07, 0.6, undefined, out);
     this.tone(1318, 0.14, 'triangle', 0.14, 0.6, undefined, out);
   }
+  /** Standing clearance handed over: a bright rising chord. */
+  delegate(at?: Pos) {
+    const out = at ? this.panner(at) : undefined;
+    [523, 784, 1046, 1568].forEach((f, i) => this.tone(f, 0.26, 'triangle', i * 0.06, 0.5, undefined, out));
+  }
+  /** A gold permit is waiting in the dispenser. */
+  goldReady() {
+    this.tone(1568, 0.1, 'sine', 0, 0.35);
+    this.tone(2093, 0.22, 'sine', 0.09, 0.3);
+  }
+  /** Standing clearance ends: the chord falls away. */
+  autonomyOver(at?: Pos) {
+    const out = at ? this.panner(at) : undefined;
+    [1046, 784].forEach((f, i) => this.tone(f, 0.18, 'triangle', i * 0.08, 0.35, undefined, out));
+  }
   incident(at?: Pos) {
     this.tone(220, 0.35, 'sawtooth', 0, 0.35, 110, at ? this.panner(at) : undefined);
   }
@@ -192,8 +207,10 @@ export class Sfx {
 
   // ------------------------------------------------------------------ internals
 
-  private panner(at: Pos): AudioNode {
-    const ctx = this.ctx!;
+  private panner(at: Pos): AudioNode | undefined {
+    const ctx = this.ctx;
+    // Before the first tap unlocks audio there is nothing to play into.
+    if (!ctx) return undefined;
     const p = ctx.createPanner();
     p.panningModel = 'HRTF';
     p.distanceModel = 'inverse';
@@ -251,7 +268,7 @@ export class Sfx {
     const g = ctx.createGain();
     g.gain.setValueAtTime(vol, t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(f).connect(g).connect(out ?? (at ? this.panner(at) : this.sfxBus!));
+    src.connect(f).connect(g).connect(out ?? (at ? this.panner(at) : undefined) ?? this.sfxBus!);
     src.start(t0, Math.random());
     src.stop(t0 + dur + 0.02);
   }
