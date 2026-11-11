@@ -37,6 +37,8 @@ import { COLORS, makeZoneTile, TILE } from './models';
 import { makeBlob as makeBlobLike } from './look';
 
 const MAX_GHOST = 48;
+/** Cells shown as walls at once: hands plus real objects on the board. */
+const MAX_WALL_CELLS = 48;
 const STATE_COLOR: Record<Robot['state'], number> = {
   idle: COLORS.idle,
   proposed: COLORS.wait,
@@ -59,6 +61,12 @@ interface RobotView {
   pop: number;
   /** 1 → 0 after a hard stop: tips forward like braking. */
   brake: number;
+  /** 1 → 0 after a rejected plan or an incident: shakes its head. */
+  shake: number;
+  /** 1 → 0 after a delivery or a won shift: hops and spins. */
+  cheer: number;
+  /** Extra turn from shake/cheer, kept apart from the heading so they don't drift. */
+  reactYaw: number;
   burst: Mesh;
   burstMat: MeshBasicMaterial;
 }
@@ -97,7 +105,7 @@ export class BoardView {
     this.handCells = new InstancedMesh(
       new PlaneGeometry(TILE * 0.9, TILE * 0.9),
       new MeshBasicMaterial({ color: 0xff9f43, transparent: true, opacity: 0.45, depthWrite: false }),
-      16,
+      MAX_WALL_CELLS,
     );
     this.handCells.count = 0;
     this.handCells.renderOrder = 3;
@@ -134,9 +142,21 @@ export class BoardView {
     if (v) v.brake = 1;
   }
 
+  /** Head shake: a plan was turned down, or something went wrong. */
+  shake(robotId: string) {
+    const v = this.robots.get(robotId);
+    if (v) v.shake = 1;
+  }
+
+  /** Little hops and a spin: a delivery, or the shift was won (`big`). */
+  cheer(robotId: string, big = false) {
+    const v = this.robots.get(robotId);
+    if (v) v.cheer = big ? 1 : Math.max(v.cheer, 0.5);
+  }
+
   /** Show which cells the hand is blocking. */
   setHandCells(cells: Cell[]) {
-    const n = Math.min(cells.length, 16);
+    const n = Math.min(cells.length, MAX_WALL_CELLS);
     for (let i = 0; i < n; i++) {
       const c = cells[i]!;
       this.cellToLocal(c[0], c[1], this.v).setY(0.0016);
@@ -303,7 +323,7 @@ export class BoardView {
       burst.rotation.x = -Math.PI / 2;
       burst.position.y = 0.002;
       model.root.add(burst);
-      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, burst, burstMat, odo: 0, wobble: 0 });
+      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, shake: 0, cheer: 0, reactYaw: 0, burst, burstMat, odo: 0, wobble: 0 });
       model.root.position.copy(this.cellToLocal(r.pos[0], r.pos[1]));
     });
   }
@@ -353,10 +373,14 @@ export class BoardView {
           }
         }
       }
-      const cur = v.model.root.rotation.y;
+      const cur = v.model.root.rotation.y - v.reactYaw;
       let d = v.heading - cur;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      v.model.root.rotation.y = cur + d * Math.min(1, dt * 12);
+      // Reactions layered on top of the heading: a head shake, a celebratory spin.
+      v.shake = Math.max(0, v.shake - dt * 1.6);
+      v.cheer = Math.max(0, v.cheer - dt * 0.8);
+      v.reactYaw = 0.45 * Math.sin(v.shake * Math.PI * 6) * v.shake + (v.cheer > 0.5 ? (1 - v.cheer) * Math.PI * 4 : 0);
+      v.model.root.rotation.y = cur + d * Math.min(1, dt * 12) + v.reactYaw;
 
       v.model.cargo.visible = r.carrying;
       const color = STATE_COLOR[r.state];
@@ -373,6 +397,7 @@ export class BoardView {
       const sq = Math.sin(v.pop * Math.PI * 2) * 0.25 * v.pop;
       v.model.body.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
       v.model.root.position.y += 0.008 * Math.sin(v.pop * Math.PI);
+      v.model.root.position.y += 0.012 * Math.abs(Math.sin(v.cheer * Math.PI * 5)) * v.cheer;
       v.burstMat.opacity = v.pop * 0.9;
       v.burst.scale.setScalar(1 + (1 - v.pop) * 1.8);
 

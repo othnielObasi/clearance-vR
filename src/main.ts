@@ -1,5 +1,5 @@
 import './landing.css';
-import { ReferenceSpaceType, SessionMode, World } from '@iwsdk/core';
+import { DepthSensingSystem, ReferenceSpaceType, SessionMode, World } from '@iwsdk/core';
 import qrcode from 'qrcode-generator';
 import { dailySeed } from './core/rng';
 import { ClearanceApp } from './game/app';
@@ -35,12 +35,23 @@ async function boot() {
     xr: {
       sessionMode: SessionMode.ImmersiveAR,
       referenceSpace: { type: ReferenceSpaceType.LocalFloor, fallbackOrder: [ReferenceSpaceType.Local] },
-      features: { handTracking: { required: false }, hitTest: { required: false }, anchors: { required: false }, planeDetection: false },
+      // All optional: the game still runs where a browser lacks any of them.
+      // Planes find the real table; depth lets real objects on the board act as walls.
+      features: {
+        handTracking: { required: false },
+        hitTest: { required: false },
+        anchors: { required: false },
+        planeDetection: { required: false },
+        depthSensing: { required: false, usage: 'gpu-optimized', format: 'float32' },
+      },
       offer: 'none',
     },
     render: { near: 0.01, far: 20, camera: { position: [0, 1.21, 0.04], lookAt: [0, 0.89, -0.5] } },
     features: { grabbing: { useHandPinchForGrab: true }, locomotion: false },
   });
+  // Depth data for the object scanner. Occlusion (real things hiding robots) is off by default
+  // until it has been checked on a headset; `?occlusion` turns it on for testing.
+  world.registerSystem(DepthSensingSystem, { configData: { enableOcclusion: true, enableDepthTexture: true, useFloat32: true } });
   world.registerSystem(makeClearanceSystem(() => app));
   app = new ClearanceApp(world);
   // ?debug exposes the app for automated browser tests and playtest tooling.

@@ -1,4 +1,5 @@
 import {
+  DepthOccludable,
   type Entity,
   Grabbed,
   IBLTexture,
@@ -31,7 +32,9 @@ import { OvertimeDirector, overtimeLevel } from '../core/overtime';
 import { DebugPanel } from '../xr/debug-panel';
 import { makePreviewRoom, setRackPeek } from '../xr/look';
 import { DeskAnchor } from '../xr/anchor';
-import type { LevelDef } from '../core/types';
+import { type BoardFrame, ObjectScanner } from '../xr/desk-scan';
+import { findTable } from '../xr/table';
+import type { Cell, LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
@@ -42,6 +45,11 @@ import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
 import { crewMemory, loadAssist, loadProgress, overtimeBest, saveAssist, saveCrew, saveDaily, saveOvertime, saveResult, shareText } from './progress';
+
+/** End-of-shift and pause menu: four pills in one row just above the status card. */
+const MENU_Y = 0.222;
+const MENU_PILL_W = 0.07;
+const menuX = (i: number) => (i - 1.5) * 0.078;
 
 /** Robot buttons grow by this much in assist mode. */
 const ASSIST_SCALE = 1.4;
@@ -102,6 +110,10 @@ export class ClearanceApp {
   private room = makePreviewRoom();
   /** Locks the board to the real desk (spatial anchor), and remembers the spot where supported. */
   private deskAnchor = new DeskAnchor();
+  /** Real objects standing on the board, seen by the headset's depth sensor. */
+  private scanner: ObjectScanner;
+  /** Searching for the real table (plane detection, then hit-test) until this time. */
+  private deskSearchUntil = 0;
   level!: LevelDef;
   private dailyLabel = '';
   private dailyKey = '';
@@ -169,6 +181,7 @@ export class ClearanceApp {
 
   constructor(private world: World) {
     applyAssist(this.assist);
+    this.scanner = new ObjectScanner(world);
     // Soft image-based light from IWSDK's built-in room environment, plus a gentle key light.
     try {
       world.activeLevel.value?.addComponent(IBLTexture, { src: 'room', intensity: 0.55 });
@@ -242,6 +255,7 @@ export class ClearanceApp {
 
   private start(level: LevelDef) {
     this.userPaused = false;
+    this.scanner?.reset();
     this.flushCrew();
     this.clearLevel();
     if (this.mode !== 'overtime') this.director = undefined;
@@ -250,6 +264,8 @@ export class ClearanceApp {
     this.view = new BoardView(this.game);
     this.coach = new Coach(level.id);
     this.boardEntity = this.world.createTransformEntity(this.view.root);
+    // Real hands and objects hide the robots behind them (headset testing only, for now).
+    if (new URLSearchParams(location.search).has('occlusion')) this.boardEntity.addComponent(DepthOccludable);
 
     const nearZ = this.view.depth / 2;
     const farZ = -this.view.depth / 2;
@@ -310,12 +326,13 @@ export class ClearanceApp {
     // Mode row above the status card. The current mode is shown in grey; pressing it restarts.
     const modes: [string, typeof this.mode, () => void][] = [
       ['Campaign', 'campaign', () => this.loadLevel(this.campaignStart())],
-      ['Daily Shift', 'daily', () => this.loadDaily()],
+      ['Daily', 'daily', () => this.loadDaily()],
       ['Overtime', 'overtime', () => this.loadOvertime()],
     ];
     this.modeBtns = modes.map(([label, mode, action], i) => {
       const b = this.addLabelButton(label, mode === this.mode ? 0x5b6573 : 0x2f6f9f, action);
-      b.mesh.position.set((i - 1) * 0.088, 0.232, farZ - 0.036);
+      // One compact row just above the status card, so it stays in view on narrow-FoV devices.
+      b.mesh.position.set(menuX(i), MENU_Y, farZ - 0.034);
       b.mesh.rotation.x = -0.25;
       return b;
     });
@@ -410,7 +427,7 @@ export class ClearanceApp {
   }
 
   /**
-   * The Assist pill sits above the mode row. Two pills (on and off) share the spot and swap
+   * The Assist pill ends the menu row. Two pills (on and off) share the spot and swap
    * visibility, so pressing one never destroys the button being pressed.
    */
   private makeAssistButtons() {
@@ -422,7 +439,7 @@ export class ClearanceApp {
         // The other pill appears under the same finger: ignore it for a moment.
         (on ? this.assistBtns.off : this.assistBtns.on).pressedAt = this.clock;
       });
-      b.mesh.position.set(0, 0.266, farZOf(this.view) - 0.045);
+      b.mesh.position.set(menuX(3), MENU_Y, farZOf(this.view) - 0.034);
       b.mesh.rotation.x = -0.25;
       return b;
     };
@@ -430,7 +447,7 @@ export class ClearanceApp {
   }
 
   private addLabelButton(label: string, color: number, action: ButtonAction): Button {
-    return this.addButtonMesh(makeLabelButton(label, color), action);
+    return this.addButtonMesh(makeLabelButton(label, color, MENU_PILL_W), action);
   }
 
   /** Where the Campaign button starts: the next unplayed level, or level 1 once all are done. */
@@ -547,6 +564,7 @@ export class ClearanceApp {
   onGrab(entity: Entity) {
     if (entity === this.handle) {
       this.deskAnchor.clear();
+      this.scanner.reset(); // the board is moving under any objects
       return;
     }
     const t = this.tokens.find((x) => x.entity === entity);
@@ -709,7 +727,10 @@ export class ClearanceApp {
   /** Look for the real desk just after entering XR and rest the board on it. */
   private async startDeskSnap() {
     const session = this.world.session;
-    if (!session || !('XRRay' in window)) return this.anchorHere();
+    if (!session) return;
+    // Look for the real table for a few seconds: detected planes first, then a hit-test ray.
+    this.deskSearchUntil = this.clock + 3;
+    if (!('XRRay' in window)) return;
     try {
       const viewer = await session.requestReferenceSpace('viewer');
       this.hitSource = await session.requestHitTestSource?.({
@@ -717,10 +738,10 @@ export class ClearanceApp {
         offsetRay: new XRRay({ x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: -0.75, z: -0.66, w: 0 }),
       });
       this.hitUntil = this.clock + 3;
-      if (!this.hitSource) this.anchorHere();
+      // The table may already have been found while we waited.
+      if (!this.deskSearchUntil) this.endDeskSearch(false);
     } catch {
-      this.hitSource = undefined; // hit-test not granted: keep the head-relative placement
-      this.anchorHere();
+      this.hitSource = undefined; // hit-test not granted: planes or the head-relative placement
     }
   }
 
@@ -728,10 +749,9 @@ export class ClearanceApp {
   private followAnchor(frame: XRFrame | null, ref: XRReferenceSpace | null) {
     const a = this.deskAnchor.update(frame, ref, this.world.player.matrixWorld as Matrix4);
     if (!a || this.handle.hasComponent(Grabbed)) return;
-    if (this.deskAnchor.restored && this.hitSource) {
+    if (this.deskAnchor.restored && this.deskSearchUntil) {
       // Restored last session's spot: no need to search for the desk again.
-      this.hitSource.cancel();
-      this.hitSource = undefined;
+      this.endDeskSearch(false);
       this.coach.say('Board is where you left it.', 2.5);
     }
     this.handle.object3D!.position.copy(a.pos);
@@ -744,31 +764,51 @@ export class ClearanceApp {
   }
 
   private updateDeskSnap() {
-    if (!this.hitSource) return;
+    if (!this.deskSearchUntil) return;
     const frame = this.world.xrFrame;
     const ref = this.world.xrReferenceSpace;
-    if (this.clock > this.hitUntil || !frame || !ref) {
-      this.hitSource.cancel();
-      this.hitSource = undefined;
-      this.anchorHere();
-      return;
+    if (this.clock > this.deskSearchUntil || !frame || !ref) return this.endDeskSearch(true);
+    const origin = this.world.player.matrixWorld as Matrix4;
+    const head = this.world.player.head.getWorldPosition(new Vector3());
+
+    // 1. The table from the player's room setup (plane detection): the most reliable.
+    const fwd = this.world.player.head.getWorldDirection(new Vector3()).multiplyScalar(-1).setY(0);
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+    const table = findTable(frame, ref, origin, head, fwd.normalize());
+    if (table) {
+      this.placeBoardOn(table, head);
+      this.coach.say('Board placed on your table.', 2.5);
+      return this.endDeskSearch(true);
     }
+
+    // 2. A ray down and ahead that hits a real surface.
+    if (!this.hitSource || this.clock > this.hitUntil) return;
     const hit = frame.getHitTestResults(this.hitSource)[0]?.getPose(ref);
     if (!hit) return;
-    const p = new Vector3(hit.transform.position.x, hit.transform.position.y, hit.transform.position.z).applyMatrix4(this.world.player.matrixWorld);
-    const head = this.world.player.head.getWorldPosition(new Vector3());
+    const p = new Vector3(hit.transform.position.x, hit.transform.position.y, hit.transform.position.z).applyMatrix4(origin);
     const below = head.y - p.y;
     const flat = Math.hypot(p.x - head.x, p.z - head.z);
     if (below < 0.15 || below > 1.0 || flat > 0.9) return; // not a plausible desk
-    // Board centre on the hit point; handle at the near edge, toward the player.
+    this.placeBoardOn(p, head);
+    this.coach.say('Board placed on your desk.', 2.5);
+    this.endDeskSearch(true);
+  }
+
+  /** Board centre on a real surface point; handle at the near edge, toward the player. */
+  private placeBoardOn(p: Vector3, head: Vector3) {
     const toPlayer = new Vector3(head.x - p.x, 0, head.z - p.z).normalize();
     const off = this.view.depth / 2 + 0.03;
     this.handle.object3D!.position.set(p.x + toPlayer.x * off, p.y + 0.012, p.z + toPlayer.z * off);
     this.boardYaw = Math.atan2(toPlayer.x, toPlayer.z);
-    this.coach.say('Board placed on your desk.', 2.5);
-    this.hitSource.cancel();
+    this.scanner.reset();
+  }
+
+  /** Stop looking for the desk; anchor the board wherever it ended up. */
+  private endDeskSearch(anchor: boolean) {
+    this.deskSearchUntil = 0;
+    this.hitSource?.cancel();
     this.hitSource = undefined;
-    this.anchorHere();
+    if (anchor) this.anchorHere();
   }
 
   /**
@@ -804,8 +844,50 @@ export class ClearanceApp {
     // A short hold filters out hands passing over the board on the way to a permit.
     this.handHold = flat ? this.handHold + dt : 0;
     const active = this.handHold > 0.15 || (!!this.debugHand && flat);
-    this.game.setBlockers(active ? cells : []);
-    this.view.setHandCells(active ? cells : []);
+    const walls: Cell[] = active ? [...cells] : [];
+
+    // Real things standing on the board (seen by the depth sensor) are walls too.
+    // Scans pause while a hand is over the board, so arms never count.
+    if (this.world.session) {
+      this.scanner.update(dt, this.boardFrame(), !this.handsOverBoard());
+      const objects = this.scanner.cells.filter((c) => this.canWall(c));
+      if (objects.length) this.coach.tip('object');
+      for (const c of objects) if (!walls.some((x) => x[0] === c[0] && x[1] === c[1])) walls.push(c);
+    }
+    this.game.setBlockers(walls);
+    this.view.setHandCells(walls);
+  }
+
+  /** The board as the depth scanner sees it. */
+  private boardFrame(): BoardFrame {
+    const v = this.view;
+    return {
+      content: v.content,
+      grid: this.game.level.grid,
+      cellToLocal: (x, y, out) => v.cellToLocal(x, y, out),
+      localToCell: (x, z) => v.localToCell(x, z),
+    };
+  }
+
+  /** Is any tracked hand over (or just beside) the board? */
+  private handsOverBoard() {
+    const halfW = this.view.width / 2 + 0.1;
+    const halfD = this.view.depth / 2 + 0.1;
+    for (const h of [this.tracker.hands.left, this.tracker.hands.right]) {
+      if (!h.tracked) continue;
+      for (const p of [h.palm, h.indexTip, h.wrist]) {
+        const l = this.view.content.worldToLocal(this.tmp.copy(p));
+        if (l.y < 0.35 && Math.abs(l.x) < halfW && Math.abs(l.z) < halfD) return true;
+      }
+    }
+    return false;
+  }
+
+  /** A real object may wall off a cell, but never a robot's cell or a pickup or drop-off spot. */
+  private canWall(c: Cell) {
+    const same = (a: readonly number[]) => a[0] === c[0] && a[1] === c[1];
+    if (this.game.robots.some((r) => same(r.pos))) return false;
+    return !this.game.tasks.some((t) => t.status !== 'done' && (same(t.from) || same(t.to)));
   }
 
   /** Half a second of slow motion when a moving robot is about to reach a worker: time to react, and drama. */
@@ -887,6 +969,7 @@ export class ClearanceApp {
         break;
       case 'rejected':
         this.sfx.voice(this.crewOf(e.robot), e.trap ? 'caught' : 'indignant', this.posOf(e.robot));
+        this.view.shake(e.robot);
         break;
       case 'held':
         this.sfx.voice(this.crewOf(e.robot), 'hesitant', this.posOf(e.robot));
@@ -908,6 +991,7 @@ export class ClearanceApp {
       case 'delivered': {
         this.sfx.deliver(this.posOf(e.robot));
         this.sfx.voice(this.crewOf(e.robot), 'happy', this.posOf(e.robot));
+        this.view.cheer(e.robot);
         const t = this.game.tasks.find((x) => x.id === e.task);
         if (t) this.view.sparkle(t.to);
         break;
@@ -916,6 +1000,7 @@ export class ClearanceApp {
         this.sfx.incident(this.posOf(e.robot));
         this.sfx.voice(this.crewOf(e.robot), 'oops', this.posOf(e.robot));
         this.view.flash(e.robot);
+        this.view.shake(e.robot);
         this.view.puff(e.robot, 0xff6b3d);
         const r = this.game.robot(e.robot);
         if (r) this.view.bounceWorkerNear(r.pos);
@@ -927,6 +1012,8 @@ export class ClearanceApp {
       case 'ended': {
         if (e.status === 'won') this.sfx.win();
         else this.sfx.lose();
+        // The crew celebrates a won shift.
+        if (e.status === 'won') for (const r of this.game.robots) this.view.cheer(r.id, true);
         // Last campaign shift won: celebrate across the floor.
         if (this.finishedCampaign()) {
           for (const r of this.game.robots) {

@@ -17,8 +17,11 @@ const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
     granted: 'Cleared. It moves only on your permit.',
     trap: 'That path crosses the spill. Flick it away, or press ✗.',
     trapRejected: 'Good call. It replans the safe way.',
+    // Taught once the basics land: the hand-wall, and real objects.
+    delivered2: 'Try it: rest a flat hand on the floor. It is a wall.',
   },
   L02: {
+    delivered1: 'A mug or a box on the board is a wall too.',
     stopped: 'Stopped. Clear it again once the way is safe.',
   },
   L03: {
@@ -32,8 +35,9 @@ const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
 
 /** Tips shown once per level whenever they first become relevant, in any level. */
 const ANYWHERE: Record<string, string> = {
-  held: 'Your hand is a wall: robots wait for it.',
-  rerouted: 'It found a way round your hand.',
+  held: 'Blocked, so it waits. Lift the hand or object away.',
+  rerouted: 'It found a way round.',
+  object: 'Real things on the board are walls. Robots plan round.',
   lean: 'Tall racking hides things. Lean to look, or press the eye.',
   goldEarned: 'Gold permit: give it to a robot you trust.',
   delegated: 'It works alone now. Your palm still stops it.',
@@ -50,6 +54,7 @@ const LOSS: Record<LossReason, string> = {
 export class Coach {
   message: string;
   private seen = new Set<string>();
+  private deliveries = 0;
   private hold = 0;
 
   constructor(private levelId: string) {
@@ -107,6 +112,10 @@ export class Coach {
         break;
       case 'yielded':
         this.tip(e.type);
+        break;
+      case 'delivered':
+        this.deliveries++;
+        this.first(`delivered${this.deliveries}`);
         break;
       case 'permitExpired':
         if (!this.first('permitExpired')) this.say('A permit faded.', 2.5);
