@@ -443,7 +443,9 @@ export class Game {
     if (r.trap) {
       this.catchTrap(r);
     } else {
-      this.stats.goodRejected++;
+      // Turning down a plan that now runs into a worker is caution, not blocking safe work.
+      const stale = !!r.route?.some((c) => this.inWorkerZone(c));
+      if (!stale) this.stats.goodRejected++;
       r.route?.slice(1, -1).forEach((c, i) => {
         if (i + 1 !== r.pickupIdx) r.penalty.set(cellKey(c), (r.penalty.get(cellKey(c)) ?? 0) + REJECT_PENALTY);
       });

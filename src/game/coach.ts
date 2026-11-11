@@ -7,6 +7,8 @@ const INTRO: Record<string, string> = {
   L03: 'Only 4 permits. Each fades 8 s after you take it.',
   L04: 'Some plans look fast but break the rules.',
   L05: 'Too few permits. Give the gold one to a robot you trust.',
+  L06: 'Busy aisle. Close it with your hand, or a mug.',
+  L07: 'Peak season. Every lesson, all at once.',
   OVERTIME: 'Keep it running. One safety mistake ends the shift.',
   DAILY: "Today's shift. Same board for everyone.",
 };

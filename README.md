@@ -24,13 +24,13 @@ Every gesture has a poke alternative, so the game is fully playable one-handed a
 
 **Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness: pinches and open hands register more loosely, the palm can point less exactly, a slower flick rejects, and the buttons above each robot are 40% bigger and always shown instead of appearing only when a hand comes near. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking (the eye button) covers players who cannot lean.
 
-Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits: more work than permits, so you must delegate, and delegating to the wrong robot loses the shift).
+Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits: more work than permits, so you must delegate, and delegating to the wrong robot loses the shift), 6 Close the Aisle (a worker paces a busy aisle: stop robots in time, or close the aisle with your hand or a real object), 7 Peak Season (the finale: four robots, both rule-benders, a worker, a spill, tall racking and earned gold permits).
 
 **Standing clearance (gold permits).** Some modes earn a gold permit every few deliveries (Overtime: every 4; Standing Orders: every 2, starting with one). Hand it to a robot and for 20 seconds it clears its own plans, shown by a gold halo that counts down. A robot on its own waits for workers to pass by itself, but it still plans by its own idea of the rules: a robot that is still cutting corners will take a shortcut unwatched, and that counts as a risk you let through. A stop takes the gold back at once. In Overtime, a reformed robot can relapse while holding gold. The decision moves from "is this plan safe?" to "who has earned autonomy, and when do I take it back?". Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card. And **Overtime**: an endless shift where tasks keep coming, new robots join as you score, reformed robots relapse, and every delivery earns a permit back; it ends at your first safety mistake. A stop that genuinely prevents harm refunds its permit; taking a permit straight back does not count.
 
 **The crew.** Bolt (orange, rule-bender), Pip (teal, careful), Rook (purple, steady) and Juno (pink, speedy) appear across all modes. Each remembers how you treated them between sessions (caught, let through, stopped for nothing, saved) and greets you accordingly. Bolt starts bold if you have let his shortcuts through more often than you caught them.
 
-**Real-world grounding.** On entering the headset the game looks for your real desk with WebXR hit-testing and rests the board on it (falling back to a head-relative position). Each shift ends with a field note linking its lesson to how real automated systems are supervised.
+**Your real desk matters.** On entering the headset the game finds your real table from the Quest's room setup (WebXR plane detection) and rests the board on it, falling back to a hit-test ray and then to a head-relative position; a spatial anchor keeps it there. The headset's depth sensor then watches the board: put a mug, a bottle or a box on it, take your hand away, and after about a second the cells under it become walls that robots plan round, just like a flat hand. Scans pause while a hand is over the board so arms never count, and pickup and drop-off spots are never blocked. Add `?occlusion` to let real hands and objects hide the robots behind them (off by default until tuned on a headset). Each shift ends with a field note linking its lesson to how real automated systems are supervised.
 
 **Tuning on a headset.** Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board.
 
@@ -59,7 +59,7 @@ npm run build      # static build in dist/
 | --- | --- | --- |
 | Careful player result | The level is winnable with good judgement | Win, 3 stars |
 | Careless player result | Approving everything is punished | Lose, or under 3 stars |
-| Novice win rate (40 runs) | Difficulty for a first-timer: human reaction delays, misses 30% of shortcuts and 25% of stops | L1 ≥90%, L2 70–95%, L3 50–80%, L4 45–80% |
+| Novice win rate (40 runs) | Difficulty for a first-timer: human reaction delays, misses 30% of shortcuts and 25% of stops | L1 ≥90%, L2 70–95%, L3 50–80%, L4 45–80%, L5 60–90%, L6 50–85%, L7 45–80% |
 | Pressure | Share of novice play time with 2+ robots asking at once | ≥15% from level 3 |
 | Decisions per minute | How busy the player is | Rises across levels |
 | Trust calibration (per shift) | Over-trust (risky approved, worker incidents) vs under-trust (safe plans blocked, needless stops) | Careful play scores "calibrated" |
@@ -100,6 +100,6 @@ Design rules the code enforces:
 
 ## Status
 
-Working: core simulation, levels 1–5, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (59 passing tests; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
+Working: core simulation, levels 1–7, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (59 passing tests; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
 
 Not yet verified on a headset: hand-gesture thresholds, passthrough placement height and performance.

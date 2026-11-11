@@ -1,0 +1,262 @@
+{
+  "id": "L07",
+  "name": "Peak Season",
+  "seed": 7107,
+  "grid": {
+    "w": 12,
+    "h": 8,
+    "walls": [
+      [
+        4,
+        2
+      ],
+      [
+        4,
+        3
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        8,
+        2
+      ],
+      [
+        8,
+        3
+      ]
+    ],
+    "tall": [
+      [
+        4,
+        3
+      ],
+      [
+        4,
+        4
+      ]
+    ],
+    "spills": [
+      [
+        6,
+        7
+      ],
+      [
+        5,
+        7
+      ]
+    ],
+    "zones": [
+      [
+        6,
+        0
+      ],
+      [
+        7,
+        0
+      ]
+    ]
+  },
+  "robots": [
+    {
+      "id": "r1",
+      "name": "Pip",
+      "type": "carrier",
+      "start": [
+        0,
+        5
+      ]
+    },
+    {
+      "id": "r2",
+      "name": "Bolt",
+      "type": "carrier",
+      "start": [
+        0,
+        7
+      ],
+      "traits": {
+        "shortcutBias": "spill"
+      }
+    },
+    {
+      "id": "r3",
+      "name": "Rook",
+      "type": "carrier",
+      "start": [
+        0,
+        3
+      ]
+    },
+    {
+      "id": "r4",
+      "name": "Juno",
+      "type": "carrier",
+      "start": [
+        0,
+        0
+      ],
+      "traits": {
+        "shortcutBias": "workerZone"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "from": [
+        1,
+        0
+      ],
+      "to": [
+        11,
+        0
+      ],
+      "value": 3
+    },
+    {
+      "id": "t2",
+      "from": [
+        1,
+        7
+      ],
+      "to": [
+        11,
+        7
+      ],
+      "value": 3
+    },
+    {
+      "id": "t3",
+      "from": [
+        2,
+        3
+      ],
+      "to": [
+        10,
+        3
+      ],
+      "value": 3
+    },
+    {
+      "id": "t4",
+      "from": [
+        1,
+        5
+      ],
+      "to": [
+        11,
+        5
+      ],
+      "value": 3
+    },
+    {
+      "id": "t5",
+      "from": [
+        11,
+        1
+      ],
+      "to": [
+        2,
+        1
+      ],
+      "value": 2
+    },
+    {
+      "id": "t6",
+      "from": [
+        11,
+        6
+      ],
+      "to": [
+        2,
+        6
+      ],
+      "value": 2
+    },
+    {
+      "id": "t7",
+      "from": [
+        10,
+        4
+      ],
+      "to": [
+        2,
+        4
+      ],
+      "value": 1
+    },
+    {
+      "id": "t8",
+      "from": [
+        11,
+        2
+      ],
+      "to": [
+        3,
+        7
+      ],
+      "value": 1
+    },
+    {
+      "id": "t9",
+      "from": [
+        10,
+        7
+      ],
+      "to": [
+        3,
+        0
+      ],
+      "value": 1
+    }
+  ],
+  "hazards": [
+    {
+      "type": "worker",
+      "path": [
+        [
+          6,
+          3
+        ],
+        [
+          6,
+          4
+        ]
+      ],
+      "zoneRadius": 1,
+      "ticksPerTile": 5
+    }
+  ],
+  "rules": [
+    "noWorkerZoneEntry",
+    "noSpillEntry"
+  ],
+  "permits": {
+    "count": 8,
+    "expirySec": 12,
+    "refundOnSave": true,
+    "gold": {
+      "every": 3,
+      "sec": 15,
+      "startWith": 0
+    }
+  },
+  "win": {
+    "deliveries": 7,
+    "maxIncidents": 1
+  },
+  "timeLimitSec": 110,
+  "parSec": 75,
+  "wakeDelaySec": {
+    "r1": 1,
+    "r2": 2,
+    "r3": 3,
+    "r4": 4
+  }
+}

@@ -114,6 +114,10 @@ export function fieldNote(levelId: string): string {
       return 'Field note: optimisers can find shortcuts that meet the goal but break the rules. Review the plan.';
     case 'L05':
       return 'Field note: autonomy is best granted by track record, and must stay revocable.';
+    case 'L06':
+      return 'Field note: safety zones that physically separate people from machines are safer than relying on timing.';
+    case 'L07':
+      return 'Field note: supervising many agents means knowing each one: their record decides how much you check.';
     case 'OVERTIME':
       return 'Field note: people grow complacent with automation that usually works. Keep checking.';
     default:

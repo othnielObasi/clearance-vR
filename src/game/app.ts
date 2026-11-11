@@ -452,7 +452,11 @@ export class ClearanceApp {
 
   /** Where the Campaign button starts: the next unplayed level, or level 1 once all are done. */
   campaignStart() {
-    return this.campaignDone() ? 0 : Math.min(loadProgress().unlocked, LEVELS.length - 1);
+    if (this.campaignDone()) return 0;
+    // The first level not yet won (so players who finished an older, shorter campaign carry on).
+    const stars = loadProgress().stars;
+    const next = LEVELS.findIndex((l) => !(stars[l.id] ?? 0));
+    return next < 0 ? 0 : next;
   }
 
   /** Has the player won the final campaign level? */
@@ -1251,7 +1255,7 @@ export class ClearanceApp {
     this.hud.draw({
       level: this.mode === 'campaign' ? `${this.levelIndex + 1}. ${level.name}` : level.name,
       best: this.mode === 'overtime' ? Math.max(this.best, g.stats.deliveries) : undefined,
-      note: g.status === 'playing' ? undefined : this.finishedCampaign() ? 'All five shifts done. Try the Daily Shift or Overtime above, or replay the campaign.' : fieldNote(level.id),
+      note: g.status === 'playing' ? undefined : this.finishedCampaign() ? `All ${LEVELS.length} shifts done. Try the Daily Shift or Overtime above, or replay the campaign.` : fieldNote(level.id),
       campaignDone: this.finishedCampaign(),
       deliveries: g.stats.deliveries,
       target: level.win.deliveries,
