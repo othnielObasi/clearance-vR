@@ -3,9 +3,8 @@ import { ReferenceSpaceType, SessionMode, World } from '@iwsdk/core';
 import qrcode from 'qrcode-generator';
 import { dailySeed } from './core/rng';
 import { ClearanceApp } from './game/app';
-import { loadProgress, overtimeBest, streakEnding } from './game/progress';
+import { overtimeBest, streakEnding } from './game/progress';
 import { makeClearanceSystem } from './game/system';
-import { LEVELS } from './levels';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const body = document.body;
@@ -48,13 +47,13 @@ async function boot() {
   if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { clearance: app });
 
   const arOK = await arCheck;
-  const progress = loadProgress();
-  const next = Math.min(progress.unlocked, LEVELS.length - 1);
+  const done = app.campaignDone();
+  const next = app.campaignStart();
   const streak = streakEnding(String(dailySeed()));
   const best = overtimeBest();
   startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = false;
-  if (arOK) startBtn.textContent = next > 0 ? `Continue: level ${next + 1}` : 'Start shift';
-  else startBtn.textContent = next > 0 ? `Continue the preview: level ${next + 1}` : 'Play the preview';
+  if (arOK) startBtn.textContent = done ? 'Replay the campaign' : next > 0 ? `Continue: level ${next + 1}` : 'Start shift';
+  else startBtn.textContent = done ? 'Replay the preview' : next > 0 ? `Continue the preview: level ${next + 1}` : 'Play the preview';
   dailyBtn.textContent = streak > 1 ? `Daily Shift, ${streak}-day streak` : 'Daily Shift';
   overtimeBtn.textContent = best > 0 ? `Overtime, best ${best}` : 'Overtime';
   status.textContent = arOK

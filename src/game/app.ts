@@ -37,7 +37,7 @@ import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { Hud } from '../xr/hud';
-import { COLORS, makeButton, makeHalo, makeToken, TILE } from '../xr/models';
+import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
 import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
@@ -142,6 +142,8 @@ export class ClearanceApp {
   debugHand: [number, number] | null = null;
   private resumeBtn?: Button;
   private exitBtn?: Button;
+  /** Switch mode without leaving the headset: shown when a shift ends or is paused. */
+  private modeBtns: Button[] = [];
   /** Floating pause button shown above an upturned palm (the Quest palm-menu pattern). */
   private palmBtn!: Button;
   private palmSide: 'left' | 'right' | null = null;
@@ -296,6 +298,19 @@ export class ClearanceApp {
     this.retryBtn = this.addButton('↻', 0x5b6573, () => (this.mode === 'daily' ? this.loadDaily() : this.loadLevel(this.levelIndex)), 0.04);
     this.retryBtn.mesh.position.set(-0.05, 0.068, farZ - 0.004);
 
+    // Mode row above the status card. The current mode is shown in grey; pressing it restarts.
+    const modes: [string, typeof this.mode, () => void][] = [
+      ['Campaign', 'campaign', () => this.loadLevel(this.campaignStart())],
+      ['Daily Shift', 'daily', () => this.loadDaily()],
+      ['Overtime', 'overtime', () => this.loadOvertime()],
+    ];
+    this.modeBtns = modes.map(([label, mode, action], i) => {
+      const b = this.addLabelButton(label, mode === this.mode ? 0x5b6573 : 0x2f6f9f, action);
+      b.mesh.position.set((i - 1) * 0.088, 0.232, farZ - 0.036);
+      b.mesh.rotation.x = -0.25;
+      return b;
+    });
+
     this.game.robots.forEach((r) => this.ensureRobotUI(r.id));
     // Bolt remembers being let through: he starts bold.
     for (const r of this.game.robots) {
@@ -377,8 +392,30 @@ export class ClearanceApp {
     this.boardEntity = undefined;
   }
 
+  private addLabelButton(label: string, color: number, action: ButtonAction): Button {
+    return this.addButtonMesh(makeLabelButton(label, color), action);
+  }
+
+  /** Where the Campaign button starts: the next unplayed level, or level 1 once all are done. */
+  campaignStart() {
+    return this.campaignDone() ? 0 : Math.min(loadProgress().unlocked, LEVELS.length - 1);
+  }
+
+  /** Has the player won the final campaign level? */
+  campaignDone() {
+    return (loadProgress().stars[LEVELS[LEVELS.length - 1]!.id] ?? 0) > 0;
+  }
+
+  /** Just won the last campaign level. */
+  private finishedCampaign() {
+    return this.mode === 'campaign' && this.game.status === 'won' && this.levelIndex === LEVELS.length - 1;
+  }
+
   private addButton(icon: string, color: number, action: ButtonAction, size?: number): Button {
-    const mesh = makeButton(icon, color, size);
+    return this.addButtonMesh(makeButton(icon, color, size), action);
+  }
+
+  private addButtonMesh(mesh: Mesh, action: ButtonAction): Button {
     const entity = this.world.createTransformEntity(mesh, { parent: this.boardEntity! });
     entity.addComponent(RayInteractable);
     entity.addComponent(PokeInteractable);
@@ -853,6 +890,13 @@ export class ClearanceApp {
       case 'ended': {
         if (e.status === 'won') this.sfx.win();
         else this.sfx.lose();
+        // Last campaign shift won: celebrate across the floor.
+        if (this.finishedCampaign()) {
+          for (const r of this.game.robots) {
+            this.view.sparkle(r.pos);
+            this.view.pop(r.id);
+          }
+        }
         if (this.mode === 'campaign' && e.status === 'won') saveResult(this.levelIndex, this.level.id, this.game.score().stars, LEVELS.length);
         if (this.mode === 'daily') {
           const score = this.game.score();
@@ -1044,9 +1088,11 @@ export class ClearanceApp {
     if (this.pauseBtn) this.pauseBtn.mesh.visible = playing && !p;
     if (this.peekBtn) this.peekBtn.mesh.visible = playing && !p;
     if (this.resumeBtn) this.resumeBtn.mesh.visible = playing && p;
-    if (this.exitBtn) this.exitBtn.mesh.visible = p && !!this.world.session;
     const ended = this.game.status !== 'playing';
-    if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign';
+    if (this.exitBtn) this.exitBtn.mesh.visible = (p || ended) && !!this.world.session;
+    for (const b of this.modeBtns) b.mesh.visible = ended || p;
+    // After the last level there is no next shift: the mode row takes over.
+    if (this.nextBtn) this.nextBtn.mesh.visible = ended && this.game.status === 'won' && this.mode === 'campaign' && !this.finishedCampaign();
     if (this.retryBtn && this.mode === 'overtime') this.retryBtn.action = () => this.loadOvertime();
     if (this.retryBtn) this.retryBtn.mesh.visible = ended || p;
   }
@@ -1074,7 +1120,8 @@ export class ClearanceApp {
     this.hud.draw({
       level: this.mode === 'campaign' ? `${this.levelIndex + 1}. ${level.name}` : level.name,
       best: this.mode === 'overtime' ? Math.max(this.best, g.stats.deliveries) : undefined,
-      note: g.status === 'playing' ? undefined : fieldNote(level.id),
+      note: g.status === 'playing' ? undefined : this.finishedCampaign() ? 'All five shifts done. Try the Daily Shift or Overtime above, or replay the campaign.' : fieldNote(level.id),
+      campaignDone: this.finishedCampaign(),
       deliveries: g.stats.deliveries,
       target: level.win.deliveries,
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held' && !p.gold).length,

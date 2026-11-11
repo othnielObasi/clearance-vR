@@ -220,6 +220,28 @@ export function makeButton(icon: string, color: number, size = 0.022): Mesh {
   return m;
 }
 
+/** A pill-shaped button with a word on it, for menus where an icon would be unclear. */
+export function makeLabelButton(label: string, color: number, width = 0.078, height = 0.026): Mesh {
+  const m = new Mesh(new BoxGeometry(width, height, 0.006), std(color));
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = Math.round((512 * height) / width);
+  const g = c.getContext('2d')!;
+  g.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#ffffff';
+  g.font = `600 ${Math.round(c.height * 0.5)}px system-ui, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(label, c.width / 2, c.height / 2 + 2, c.width - 24);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  const face = new Mesh(new PlaneGeometry(width * 0.96, height * 0.9), new MeshBasicMaterial({ map: t }));
+  face.position.z = 0.0032;
+  m.add(face);
+  return m;
+}
+
 function iconTexture(icon: string, color: number): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
