@@ -82,6 +82,9 @@ export class BoardView {
   private workers: { root: Group; figure: Group; zone: Mesh; bounce: number; waveCooldown: number }[] = [];
   /** 0 → 1 as the board unfolds from the desk after loading. */
   private unfold = 0;
+  /** Seconds since the board appeared: drives the staged intro (racking rises, crates pop, robots drop in). */
+  private intro = 0;
+  private scenery?: Group;
   /** Glow on the cells under the player's flat hand. */
   private handCells!: InstancedMesh;
   /** World positions of tracked fingertips, set each frame by the app. */
@@ -268,7 +271,8 @@ export class BoardView {
     scenery.add(dock);
     (g.zones ?? []).forEach((c) => put(makeZoneTile(), c));
     (g.spills ?? []).forEach((c) => put(makePuddle(), c));
-    this.content.add(mergeStatic(scenery));
+    this.scenery = mergeStatic(scenery);
+    this.content.add(this.scenery);
 
     this.syncDynamic();
 
@@ -337,6 +341,10 @@ export class BoardView {
       const e = 1 - Math.pow(1 - this.unfold, 3);
       this.content.scale.set(0.3 + 0.7 * e, 1, Math.max(0.02, e));
     }
+    // Staged intro: racking and dock rise as the floor finishes unfolding.
+    this.intro += dt;
+    if (this.scenery && this.intro < 1.2) this.scenery.scale.y = Math.max(0.001, backOut(stage(this.intro, 0.45, 0.5)));
+    else if (this.scenery) this.scenery.scale.y = 1;
     // Crates follow task state: on the floor, on a robot, or gone.
     for (const t of game.tasks) {
       const crate = this.crates.get(t.id)!;
@@ -344,7 +352,11 @@ export class BoardView {
       crate.visible = t.status !== 'done' && !carrier;
       const pad = this.pads.get(t.id)!;
       pad.visible = t.status !== 'done';
-      pad.scale.setScalar(t.claimedBy ? 1 : 0.9);
+      // Crates and drop pads pop in one after another during the intro.
+      const k = game.tasks.indexOf(t);
+      const pop = this.intro < 2.5 ? Math.max(0.001, backOut(stage(this.intro, 0.8 + k * 0.06, 0.3))) : 1;
+      crate.scale.setScalar(pop);
+      pad.scale.setScalar((t.claimedBy ? 1 : 0.9) * pop);
     }
 
     for (const r of game.robots) {
@@ -398,6 +410,12 @@ export class BoardView {
       v.model.body.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
       v.model.root.position.y += 0.008 * Math.sin(v.pop * Math.PI);
       v.model.root.position.y += 0.012 * Math.abs(Math.sin(v.cheer * Math.PI * 5)) * v.cheer;
+      // Intro: robots drop onto their charging pads one by one, with a small bounce.
+      if (this.intro < 2.5) v.model.root.position.y += 0.07 * (1 - bounceOut(stage(this.intro, 1.0 + game.robots.indexOf(r) * 0.12, 0.45)));
+      // The contact shadow stays on the floor, shrinking as the robot lifts off it.
+      const lift = Math.max(0, v.model.root.position.y);
+      v.model.shadow.position.y = 0.0009 - lift;
+      v.model.shadow.scale.setScalar(Math.max(0.35, 1 - lift * 14));
       v.burstMat.opacity = v.pop * 0.9;
       v.burst.scale.setScalar(1 + (1 - v.pop) * 1.8);
 
@@ -460,4 +478,25 @@ export class BoardView {
     const v = this.robots.get(id);
     if (v) (v.model.body.material as MeshStandardMaterial).emissive = new Color(hex);
   }
+}
+
+/** 0 → 1 over `len` seconds starting at `from`. */
+function stage(t: number, from: number, len: number) {
+  return Math.min(1, Math.max(0, (t - from) / len));
+}
+
+/** Ease out with a small overshoot (things pop into place). */
+function backOut(x: number) {
+  const c = 1.7;
+  return x <= 0 ? 0 : 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2);
+}
+
+/** Ease out with a bounce (robots landing). */
+function bounceOut(x: number) {
+  const n = 7.5625;
+  const d = 2.75;
+  if (x < 1 / d) return n * x * x;
+  if (x < 2 / d) return n * (x -= 1.5 / d) * x + 0.75;
+  if (x < 2.5 / d) return n * (x -= 2.25 / d) * x + 0.9375;
+  return n * (x -= 2.625 / d) * x + 0.984375;
 }

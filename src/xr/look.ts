@@ -90,6 +90,8 @@ export interface CrewModel {
   wheels: Mesh[];
   antenna: Group;
   eyes: Mesh[];
+  /** Contact shadow; the board keeps it on the floor when the robot hops. */
+  shadow: Mesh;
 }
 
 interface Shape {
@@ -212,9 +214,10 @@ export function makeCrewRobot(name: CrewName, color: number): CrewModel {
   const halo = new Mesh(new RingGeometry(0.021, 0.026, 32), haloMat);
   halo.rotation.x = -Math.PI / 2;
   halo.position.y = 0.0015;
-  root.add(halo, makeBlob(s.w * 1.7, s.d * 1.6, 0.42));
+  const shadow = makeBlob(s.w * 1.7, s.d * 1.6, 0.42);
+  root.add(halo, shadow);
 
-  return { root, body, light, lightMat, cargo, halo, haloMat, wheels, antenna, eyes };
+  return { root, body, light, lightMat, cargo, halo, haloMat, wheels, antenna, eyes, shadow };
 }
 
 // ------------------------------------------------------------------ props
