@@ -6,3 +6,7 @@ dist
 # Server secrets
 .env
 !.env.example
+
+# Generated output
+/film/
+/report.png
