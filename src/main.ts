@@ -65,6 +65,8 @@ async function boot() {
   world.registerSystem(DepthSensingSystem, { configData: { enableOcclusion: true, enableDepthTexture: true, useFloat32: true } });
   world.registerSystem(makeClearanceSystem(() => app));
   app = new ClearanceApp(world);
+  // The emulator has no passthrough to show your real hands, so draw them.
+  if (params.has('emulate')) app.drawHands();
   // ?debug exposes the app for automated browser tests and playtest tooling.
   if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { clearance: app });
 

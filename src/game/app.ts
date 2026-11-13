@@ -41,6 +41,7 @@ import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
+import { HandModel } from '../xr/hand-model';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
@@ -110,6 +111,8 @@ export class ClearanceApp {
   private buttonsAlways = false;
   private nearMisses = 0;
   private reportSaveIn = 5;
+  /** Drawn hands, for the emulator only (on a Quest, passthrough shows the real ones). */
+  private drawnHands?: Record<'left' | 'right', HandModel>;
   /** When a carried permit was last let go: robot buttons stay hidden just after, see below. */
   private releasedAt = -10;
   private nearPalm = { left: 0, right: 0 };
@@ -933,6 +936,7 @@ export class ClearanceApp {
       this.room.rotation.y = this.boardYaw;
     }
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
+    this.updateDrawnHands();
     if (this.world.session) {
       this.gestureLog.frame(dt);
       if ((this.reportSaveIn -= dt) <= 0) {
@@ -1465,6 +1469,30 @@ export class ClearanceApp {
         }
         break;
       }
+    }
+  }
+
+  /** Draw the player's hands from their joints. Call once, in emulator mode. */
+  drawHands() {
+    if (this.drawnHands) return;
+    this.tracker.readAllJoints = true;
+    const make = () => new HandModel({ color: 0xd9a988 });
+    this.drawnHands = { left: make(), right: make() };
+    for (const h of Object.values(this.drawnHands)) {
+      h.visible = false;
+      this.world.scene.add(h);
+    }
+  }
+
+  private updateDrawnHands() {
+    if (!this.drawnHands) return;
+    for (const side of ['left', 'right'] as const) {
+      const all = this.tracker.allJoints[side];
+      const model = this.drawnHands[side];
+      // If the toolkit's own hand model loaded (it comes from a CDN), it is already drawn.
+      const theirs = this.world.input?.visualAdapters?.hand?.[side]?.visual?.model;
+      model.visible = all.ok && !!this.world.session && !(theirs?.visible && theirs.parent);
+      if (model.visible) model.setJoints(all.points, all.radii);
     }
   }
 

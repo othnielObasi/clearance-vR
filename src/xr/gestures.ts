@@ -1,3 +1,4 @@
+import { HAND_JOINTS } from './hand-model';
 import { Matrix4, Vector3 } from 'three';
 
 /** All gesture thresholds in one place, so accessibility settings can relax them. */
@@ -89,13 +90,25 @@ const blank = (side: Handedness): HandFrame => ({
  */
 export class HandTracker {
   readonly hands: Record<Handedness, HandFrame> = { left: blank('left'), right: blank('right') };
+  /**
+   * All 25 joints per hand (world space) and their radii, read only when `readAllJoints` is set:
+   * for drawing hands where passthrough can't show the real ones (the emulator).
+   */
+  readAllJoints = false;
+  readonly allJoints: Record<Handedness, { points: Vector3[]; radii: number[]; ok: boolean }> = {
+    left: { points: HAND_JOINTS.map(() => new Vector3()), radii: HAND_JOINTS.map(() => 0.01), ok: false },
+    right: { points: HAND_JOINTS.map(() => new Vector3()), radii: HAND_JOINTS.map(() => 0.01), ok: false },
+  };
   private pos: Record<string, Vector3> = {};
   private lastTip: Record<Handedness, Vector3 | null> = { left: null, right: null };
   private a = new Vector3();
   private b = new Vector3();
 
   update(frame: XRFrame | null, ref: XRReferenceSpace | null, origin: Matrix4, dt: number) {
-    for (const side of ['left', 'right'] as const) this.hands[side].tracked = false;
+    for (const side of ['left', 'right'] as const) {
+      this.hands[side].tracked = false;
+      this.allJoints[side].ok = false;
+    }
     if (!frame || !ref) return;
     for (const src of frame.session.inputSources) {
       if (!src.hand || (src.handedness !== 'left' && src.handedness !== 'right')) continue;
@@ -116,6 +129,18 @@ export class HandTracker {
         continue;
       }
       this.derive(h, dt);
+      if (this.readAllJoints) {
+        const all = this.allJoints[src.handedness];
+        all.ok = HAND_JOINTS.every((name, i) => {
+          const space = src.hand!.get(name);
+          const pose = space && frame.getJointPose?.(space, ref);
+          if (!pose) return false;
+          const p = pose.transform.position;
+          all.points[i]!.set(p.x, p.y, p.z).applyMatrix4(origin);
+          all.radii[i] = pose.radius ?? 0.01;
+          return true;
+        });
+      }
     }
   }
 
