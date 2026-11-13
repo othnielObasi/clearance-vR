@@ -95,7 +95,7 @@ function place(key: GhostKey, out: Vector3[]) {
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 export class GhostHand extends Object3D {
-  readonly hand = new HandModel({ color: 0x8fe9ff, opacity: 0.5, emissive: 0x2bb8e0 });
+  readonly hand = new HandModel({ color: 0x9feeff, opacity: 0.6, emissive: 0x2bb8e0 });
   private permit: Mesh;
   private keys: GhostKey[] = [];
   private placed: { points: Vector3[]; radii: number[] }[] = [];
@@ -155,7 +155,7 @@ export class GhostHand extends Object3D {
     const body = this.length - FADE * 2 - GAP;
     const tt = this.t - FADE;
     const alpha = this.t < FADE ? this.t / FADE : tt > body + FADE ? 0 : tt > body ? 1 - (tt - body) / FADE : 1;
-    this.hand.material.opacity = 0.5 * alpha;
+    this.hand.material.opacity = 0.6 * alpha;
     (this.permit.material as MeshBasicMaterial).opacity = 0.55 * alpha;
 
     // Which key are we moving to, and how far along?

@@ -112,6 +112,10 @@ export class ClearanceApp {
   private buttonsAlways = false;
   private nearMisses = 0;
   private reportSaveIn = 5;
+  /** Real objects on the board become walls (depth sensing). Filming turns it off. */
+  scanObjects = true;
+  /** When each hand last lay flat on the board: lifting it off is not a flick. */
+  private flatAt = { left: -10, right: -10 };
   /** The tutorial's ghost hand, acting out each gesture the first time it's needed. */
   private ghost?: GhostHand;
   /** Gestures the player has done themselves, remembered between sessions: no more demos. */
@@ -1146,6 +1150,7 @@ export class ClearanceApp {
       if (cx < -0.5 || cy < -0.5 || cx > w - 0.5 || cy > h - 0.5) continue;
       flat = true;
       this.flatOnBoard[hand.side] = true;
+      this.flatAt[hand.side] = this.clock;
       addAround(cx, cy);
     }
     if (this.debugHand) {
@@ -1161,7 +1166,7 @@ export class ClearanceApp {
     // Real things standing on the board (seen by the depth sensor) are walls too.
     // Scans pause while a hand is over the board, so arms never count.
     if (this.world.session) {
-      this.scanner.update(dt, this.boardFrame(), !this.handsOverBoard());
+      if (this.scanObjects) this.scanner.update(dt, this.boardFrame(), !this.handsOverBoard());
       const objects = this.scanner.cells.filter((c) => this.canWall(c));
       if (objects.length) this.coach.tip('object');
       if (this.scanner.obstructed) this.coach.tip('obstructed');
@@ -1414,7 +1419,11 @@ export class ClearanceApp {
       }
       // A palm held up near a moving robot, but pointing a little off, is a near miss.
       const nearCone = Math.cos(Math.acos(GESTURE.palmConeCos) + (20 * Math.PI) / 180);
-      this.nearPalm[h.side] = !target && closest > nearCone ? this.nearPalm[h.side] + dt : 0;
+      // Only a palm held up fairly still counts: a hand reaching past a robot for a permit is not
+      // trying to stop it.
+      const still = h.velocity.length() < 0.2;
+      const nearPermit = [this.ready, this.goldReady].some((t) => t?.entity.object3D && t.entity.object3D.getWorldPosition(this.tmp2).distanceTo(h.palm) < 0.12);
+      this.nearPalm[h.side] = !target && closest > nearCone && still && !nearPermit ? this.nearPalm[h.side] + dt : 0;
       if (this.nearPalm[h.side] > 0.8) {
         this.nearPalm[h.side] = -2; // once per attempt
         this.gestureNearMiss('palm', (Math.acos(Math.min(1, closest)) * 180) / Math.PI);
@@ -1434,8 +1443,11 @@ export class ClearanceApp {
 
       // Flick: a fast sideways index-tip swipe that starts on a proposed path rejects it.
       this.checkPinchNearMiss(h, dt);
-      if (!h.tracked || h.pinching) {
+      // Not while pinching, and not a hand that lay flat on the board a moment ago (a hand wall
+      // being lifted off sweeps across plans, but it is not a flick).
+      if (!h.tracked || h.pinching || this.clock - this.flatAt[h.side] < 0.6) {
         this.onPath[h.side] = 0;
+        this.lastPlan[h.side] = null;
         continue;
       }
       const speed = Math.hypot(h.velocity.x, h.velocity.z);
@@ -1487,7 +1499,7 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ ghost-hand tutorial
 
   /**
-   * Shows the gesture the player needs right now, acted out by a translucent hand on the real
+   * Shows the gesture the player needs right now, acted out (unhurried, so it reads) by a translucent hand on the real
    * board: only in the headset, only until the player has done it themselves, at most four times
    * a level. The poke buttons and the coach line stay as they were.
    */
@@ -1563,11 +1575,11 @@ export class ClearanceApp {
         const token = this.ready?.entity.object3D?.getWorldPosition(V());
         if (!token) return null;
         return [
-          { pose: 'open', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0, hold: 0.4 },
-          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.004]), fingers: reach, palm: down, move: 0.4, hold: 0.25, carrying: true },
-          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0.3, hold: 0, carrying: true },
-          { pose: 'pinch', anchor: 'pinch', at: at(robot, [up, 0.07]), fingers: reach, palm: down, move: 0.9, hold: 0.2, carrying: true },
-          { pose: 'open', anchor: 'pinch', at: at(robot, [up, 0.06]), fingers: reach, palm: down, move: 0.25, hold: 0.6 },
+          { pose: 'open', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0, hold: 0.56 },
+          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.004]), fingers: reach, palm: down, move: 0.56, hold: 0.35, carrying: true },
+          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0.42, hold: 0, carrying: true },
+          { pose: 'pinch', anchor: 'pinch', at: at(robot, [up, 0.07]), fingers: reach, palm: down, move: 1.26, hold: 0.28, carrying: true },
+          { pose: 'open', anchor: 'pinch', at: at(robot, [up, 0.06]), fingers: reach, palm: down, move: 0.35, hold: 0.84 },
         ];
       }
       case 'flick': {
@@ -1575,24 +1587,24 @@ export class ClearanceApp {
         const mid = path[Math.min(2, path.length - 1)] ?? robot;
         const point = away.clone().addScaledVector(down, 0.75).normalize();
         return [
-          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.012]), fingers: point, palm: down, move: 0, hold: 0.7 },
-          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.02], [across, 0.14]), fingers: point, palm: down, move: 0.18, hold: 0.5 },
+          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.012]), fingers: point, palm: down, move: 0, hold: 0.98 },
+          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.02], [across, 0.14]), fingers: point, palm: down, move: 0.25, hold: 0.7 },
         ];
       }
       case 'palm': {
         // Palm up in front of the robot, facing it, pushed a little toward it.
         const p = at(robot, [toward, 0.16], [up, 0.09]);
         return [
-          { pose: 'open', anchor: 'palm', at: at(p, [toward, 0.05]), fingers: up, palm: away, move: 0, hold: 0.25 },
-          { pose: 'open', anchor: 'palm', at: p, fingers: up, palm: away, move: 0.3, hold: 1 },
+          { pose: 'open', anchor: 'palm', at: at(p, [toward, 0.05]), fingers: up, palm: away, move: 0, hold: 0.35 },
+          { pose: 'open', anchor: 'palm', at: p, fingers: up, palm: away, move: 0.42, hold: 1.4 },
         ];
       }
       case 'wall': {
         const path = this.view.pathWorld(r);
         const cell = path[Math.floor(path.length / 2)] ?? robot;
         return [
-          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.11]), fingers: away, palm: down, move: 0, hold: 0.3 },
-          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.035]), fingers: away, palm: down, move: 0.6, hold: 1.3 },
+          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.11]), fingers: away, palm: down, move: 0, hold: 0.42 },
+          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.035]), fingers: away, palm: down, move: 0.84, hold: 1.82 },
         ];
       }
     }

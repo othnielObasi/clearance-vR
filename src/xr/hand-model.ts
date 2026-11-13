@@ -72,7 +72,9 @@ export class HandModel extends Object3D {
       metalness: 0,
       transparent: translucent,
       opacity: look.opacity ?? 1,
-      depthWrite: !translucent,
+      // Translucent hands still write depth, so a ghost hand's nearer parts hide the rest of it:
+      // a clean see-through silhouette instead of overlapping balls blending into a smear.
+      depthWrite: true,
       emissive: new Color(look.emissive ?? 0x000000),
       emissiveIntensity: look.emissive ? 0.9 : 0,
     });

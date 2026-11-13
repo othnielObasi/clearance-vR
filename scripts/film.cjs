@@ -17,6 +17,7 @@ const path = require('node:path');
 const URL = process.env.URL ?? 'https://localhost:4173/';
 const OUT = path.resolve(process.env.OUT ?? 'film');
 const FPS = +(process.env.FPS ?? 30);
+const FOV = +(process.env.FOV ?? 58); // vertical, degrees
 const SIZE = { width: +(process.env.W ?? 1280), height: +(process.env.H ?? 720) };
 
 // Runs in the page before anything else. Until __film.start(), everything is passed through.
@@ -65,7 +66,13 @@ const SCENES = {
     await s.level(0, { fresh: true });
     await s.film(1.5);
     await s.until(() => window.clearance.ghost?.playing === 'pinch', 20);
-    await s.film(4.2);
+    // Film the whole demonstration, then let the player's own hand take over with no more demos.
+    await s.filmUntil(() => !window.clearance.ghost?.playing, 12);
+    await s.film(0.4);
+    await s.page.evaluate(() => {
+      window.clearance.learned = new Set(['pinch', 'flick', 'palm', 'wall']);
+      window.clearance.ghost?.stop();
+    });
     const token = await s.at('token');
     const robot = await s.at('robot', 'r1');
     s.hand('right', 'open', s.add(token, 0, 0.07, 0.03), { fingers: 'forward', palm: 'down' }, 'thumb-tip');
@@ -212,15 +219,24 @@ async function makeStage(page, sceneDir) {
       }
       throw new Error(`timed out waiting for ${pred}`);
     },
+    // Record until a condition holds (checked every frame), at most `maxSec`.
+    filmUntil: async (pred, maxSec) => {
+      for (let i = 0; i < maxSec * FPS; i++) {
+        if (await page.evaluate(`(${pred.toString()})()`)) return;
+        await s.film(1 / FPS);
+      }
+    },
     // Record `sec` seconds of footage.
     film: async (sec) => {
-      for (let i = 0; i < Math.round(sec * FPS); i++) {
+      for (let i = 0; i < Math.max(1, Math.round(sec * FPS)); i++) {
         // A seated person's head is never perfectly still.
         sway += 1 / FPS;
         await page.evaluate((t) => {
           const d = window.xrdevice;
           d.position.x = d.__seat.x + Math.sin(t * 0.7) * 0.012;
           d.position.y = d.__seat.y + Math.sin(t * 1.1) * 0.006;
+          // ?debug is needed to drive the game, but its tuning panel stays out of shot.
+          if (window.clearance.debug) window.clearance.debug.mesh.visible = false;
         }, sway);
         await s.advance(1);
         await page.screenshot({ path: path.join(sceneDir, `${String(frame++).padStart(5, '0')}.png`) });
@@ -231,7 +247,7 @@ async function makeStage(page, sceneDir) {
         ([i, fresh, l]) => {
           const a = window.clearance;
           a.learned = new Set(fresh ? [] : l);
-          if (i !== 0 || !fresh) a.loadLevel(i);
+          a.loadLevel(i); // also resets the coach line
         },
         [index, fresh, learned],
       );
@@ -269,13 +285,29 @@ async function makeStage(page, sceneDir) {
     await page.waitForFunction(() => window.clearance.world.renderer.xr.getSession?.(), null, { timeout: 60000 });
     // Take over time only now, once the session is running.
     await page.evaluate(() => window.__film.start());
-    await page.evaluate(() => {
-      const d = window.xrdevice;
-      d.__seat = { x: d.position.x, y: d.position.y };
-    });
     const stage = await makeStage(page, sceneDir);
     // Let the board find the desk before rolling.
     await stage.advance(15, 100);
+    // Frame the shot: look at the board and narrow the field of view, like a close-up lens.
+    // A Quest sees much wider; this is only so the board fills a video frame.
+    await page.evaluate((fov) => {
+      const a = window.clearance;
+      const d = window.xrdevice;
+      const V = a.tmp.constructor;
+      const M = a.world.camera.matrix.constructor;
+      const Q = a.world.camera.quaternion.constructor;
+      const target = a.view.content.getWorldPosition(new V()).add(new V(0, 0.02, 0));
+      const eye = new V(d.position.x, d.position.y, d.position.z);
+      const q = new Q().setFromRotationMatrix(new M().lookAt(eye, target, new V(0, 1, 0)));
+      d.quaternion.set(q.x, q.y, q.z, q.w);
+      d.fovy = (fov * Math.PI) / 180;
+      // The synthetic room's monitor overhangs the board; its stand would read as an object.
+      a.scanObjects = false;
+      a.scanner.cells = [];
+      a.scanner.obstructed = false;
+      d.__seat = { x: d.position.x, y: d.position.y };
+    }, FOV);
+    await stage.advance(3, 100);
     console.log(`filming ${name}`);
     await SCENES[name](stage);
     await page.close();
