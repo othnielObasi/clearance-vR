@@ -25,6 +25,9 @@ export class GestureLog {
   private started = Date.now();
   levels = new Set<string>();
   assist = false;
+  /** Frame-rate guard level reached (0 = everything on) and whether object walls were switched off as noisy. */
+  perfLevel = 0;
+  objectWalls: 'on' | 'off (noisy)' | 'off (performance)' | 'no depth data' = 'no depth data';
 
   fire(kind: GestureKind) {
     this.fired[kind]++;
@@ -51,7 +54,8 @@ export class GestureLog {
       `date ${new Date().toISOString().slice(0, 16)}  minutes ${((Date.now() - this.started) / 60000).toFixed(1)}`,
       `device ${navigator.userAgent.match(/(Quest[^;)]*|OculusBrowser\/[\d.]+)/g)?.join(' ') ?? navigator.userAgent.slice(0, 80)}`,
       `assist ${this.assist ? 'on' : 'off'}  levels ${[...this.levels].join(',') || 'none'}`,
-      `fps avg ${fps.toFixed(1)}  worst frame ${(this.worstFrame * 1000).toFixed(0)} ms`,
+      `fps avg ${fps.toFixed(1)}  worst frame ${(this.worstFrame * 1000).toFixed(0)} ms  safety level ${this.perfLevel}`,
+      `object walls ${this.objectWalls}`,
       `fired  ${Object.entries(this.fired).map(([k, v]) => `${k} ${v}`).join('  ')}`,
       `nearly ${Object.entries(this.near).map(([k, v]) => `${k} ${v}`).join('  ')}`,
       `pinch gaps missed (m, needs < ${GESTURE.pinchOn}): ${r(this.pinchGaps)}`,

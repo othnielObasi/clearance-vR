@@ -29,8 +29,12 @@ export class Effects {
     parent.add(this.mesh);
   }
 
+  /** Off when the frame-rate guard needs the headroom: bursts are skipped. */
+  enabled = true;
+
   /** Burst at a board-local position. */
   burst(at: Vector3, color: number, count: number, opts: { speed?: number; up?: number; size?: number; life?: number } = {}) {
+    if (!this.enabled) return;
     const c = new Color(color);
     for (let i = 0; i < count && this.parts.length < MAX; i++) {
       const a = Math.random() * Math.PI * 2;

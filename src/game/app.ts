@@ -34,6 +34,8 @@ import { OvertimeDirector, overtimeLevel } from '../core/overtime';
 import { DebugPanel } from '../xr/debug-panel';
 import { makePreviewRoom, setRackPeek } from '../xr/look';
 import { DeskAnchor } from '../xr/anchor';
+import { WallTrust } from '../xr/wall-trust';
+import { PerfGuard } from './perf-guard';
 import { type BoardFrame, ObjectScanner } from '../xr/desk-scan';
 import { findTable, findTableOutline } from '../xr/table';
 import type { Cell, LevelDef } from '../core/types';
@@ -110,6 +112,10 @@ export class ClearanceApp {
   readonly tracker = new HandTracker();
   /** What gestures did on this device, for remote testers (see gesture-log.ts). */
   readonly gestureLog = new GestureLog();
+  /** Steps down effects if the headset can't hold the frame rate (we could not test on every device). */
+  private perf = new PerfGuard();
+  /** Switches object walls off for a shift if the depth sensor proves noisy. */
+  private wallTrust = new WallTrust();
   /** After a gesture nearly works, poke buttons stay shown until this time. */
   private buttonsUntil = 0;
   /** After repeated near misses, buttons stay shown for the rest of the shift. */
@@ -349,6 +355,7 @@ export class ClearanceApp {
     this.demoCount = {};
     this.ghost?.stop();
     this.gestureLog.levels.add(level.id);
+    this.wallTrust.reset();
     this.gestureLog.assist = this.assist;
     this.scanner?.reset();
     this.flushCrew();
@@ -357,6 +364,7 @@ export class ClearanceApp {
     this.level = level;
     this.game = new Game(level);
     this.view = new BoardView(this.game);
+    this.view.effects.enabled = this.perf.level < 3; // keep the frame-rate guard's choice across shifts
     this.coach = new Coach(level.id);
     this.boardEntity = this.world.createTransformEntity(this.view.root);
     // Real hands and objects hide the robots behind them (headset testing only, for now).
@@ -944,6 +952,7 @@ export class ClearanceApp {
   // ------------------------------------------------------------------ per-frame
 
   frame(dt: number, frame: XRFrame | null, ref: XRReferenceSpace | null) {
+    const rawDt = dt;
     dt = Math.min(dt, 0.1);
     this.clock += dt;
     const inXR = !!this.world.session;
@@ -957,6 +966,7 @@ export class ClearanceApp {
     this.wasInXR = inXR;
     // Pause cleanly when the headset sleeps or a system menu opens.
     const paused = this.userPaused || (inXR && this.world.visibilityState.value !== VisibilityState.Visible);
+    if (this.perf.sample(rawDt, inXR && !paused)) this.applyPerfLevel();
 
     this.placeBoard();
     this.room.visible = !inXR;
@@ -1042,10 +1052,28 @@ export class ClearanceApp {
     this.sfx.setPaused(paused);
   }
 
+  /** The frame-rate guard stepped down: apply everything up to its new level. */
+  private applyPerfLevel() {
+    const l = this.perf.level;
+    this.gestureLog.perfLevel = l;
+    if (l >= 1) {
+      try {
+        this.world.renderer.xr.setFoveation(1);
+      } catch {
+        /* not supported by this browser */
+      }
+    }
+    if (l >= 2) this.scanner.reset();
+    this.view.effects.enabled = l < 3;
+  }
+
   private updateDebug(dt: number) {
     if (!this.debug) return;
     const f = (v: number) => v.toFixed(3);
-    const lines = [`fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}  draws ${this.world.renderer.info.render.calls}  tris ${this.world.renderer.info.render.triangles}`];
+    const lines = [
+      `fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}  draws ${this.world.renderer.info.render.calls}  tris ${this.world.renderer.info.render.triangles}`,
+      `safety level ${this.perf.level}  object walls ${this.gestureLog.objectWalls}`,
+    ];
     for (const side of ['left', 'right'] as const) {
       const h = this.tracker.hands[side];
       if (!h.tracked) {
@@ -1232,8 +1260,21 @@ export class ClearanceApp {
     // Real things standing on the board (seen by the depth sensor) are walls too.
     // Scans pause while a hand is over the board, so arms never count.
     if (this.world.session) {
-      if (this.scanObjects) this.scanner.update(dt, this.boardFrame(), !this.handsOverBoard());
-      const objects = this.scanner.cells.filter((c) => this.canWall(c));
+      const handsNear = this.handsOverBoard();
+      if (handsNear) this.wallTrust.handSeen(this.clock);
+      const scanning = this.scanObjects && this.perf.level < 2 && !this.wallTrust.disabled;
+      if (scanning) this.scanner.update(dt, this.boardFrame(), !handsNear);
+      // Walls that come and go with no hand near are sensor noise: past a few, stop using them this shift.
+      const trusted = this.wallTrust.update(this.clock, this.scanner.cells, this.game.level.grid.w);
+      if (!trusted && this.scanner.cells.length) this.scanner.reset();
+      const objects = scanning && trusted ? this.scanner.cells.filter((c) => this.canWall(c)) : [];
+      this.gestureLog.objectWalls = this.wallTrust.disabled
+        ? 'off (noisy)'
+        : this.perf.level >= 2
+          ? 'off (performance)'
+          : this.scanner.available
+            ? 'on'
+            : 'no depth data';
       if (objects.length) this.coach.tip('object');
       if (this.scanner.obstructed) this.coach.tip('obstructed');
       for (const c of objects) if (!walls.some((x) => x[0] === c[0] && x[1] === c[1])) walls.push(c);
