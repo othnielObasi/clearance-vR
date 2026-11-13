@@ -22,7 +22,7 @@ const results = [];
 
   await page.goto(`${URL}?debug&emulate&nocontrols`);
   await page.waitForFunction(() => window.clearance && !document.getElementById('start').disabled, null, { timeout: 90000 });
-  await page.click('#start');
+  await page.evaluate(() => document.getElementById('start').click());
   await page.waitForFunction(() => window.clearance.world.renderer.xr.getSession?.(), null, { timeout: 30000 });
 
   // Record game events, and give the test simple helpers that run inside the page.
