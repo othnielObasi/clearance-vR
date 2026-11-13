@@ -42,6 +42,7 @@ import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
 import { HandModel } from '../xr/hand-model';
+import { GhostHand, type GhostKey } from '../xr/ghost-hand';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
@@ -111,6 +112,14 @@ export class ClearanceApp {
   private buttonsAlways = false;
   private nearMisses = 0;
   private reportSaveIn = 5;
+  /** The tutorial's ghost hand, acting out each gesture the first time it's needed. */
+  private ghost?: GhostHand;
+  /** Gestures the player has done themselves, remembered between sessions: no more demos. */
+  private learned = loadLearned();
+  /** Demonstrations shown this level, per gesture, and when the last one ended. */
+  private demoCount: Record<string, number> = {};
+  private demoTarget: string | null = null;
+  private demoRestAt = 0;
   /** Drawn hands, for the emulator only (on a Quest, passthrough shows the real ones). */
   private drawnHands?: Record<'left' | 'right', HandModel>;
   /** When a carried permit was last let go: robot buttons stay hidden just after, see below. */
@@ -320,6 +329,8 @@ export class ClearanceApp {
     this.buttonsUntil = 0;
     this.nearMisses = 0;
     this.askingSince.clear();
+    this.demoCount = {};
+    this.ghost?.stop();
     this.gestureLog.levels.add(level.id);
     this.gestureLog.assist = this.assist;
     this.scanner?.reset();
@@ -937,6 +948,7 @@ export class ClearanceApp {
     }
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
     this.updateDrawnHands();
+    this.updateTutorial(dt, paused);
     if (this.world.session) {
       this.gestureLog.frame(dt);
       if ((this.reportSaveIn -= dt) <= 0) {
@@ -1472,6 +1484,121 @@ export class ClearanceApp {
     }
   }
 
+  // ------------------------------------------------------------------ ghost-hand tutorial
+
+  /**
+   * Shows the gesture the player needs right now, acted out by a translucent hand on the real
+   * board: only in the headset, only until the player has done it themselves, at most four times
+   * a level. The poke buttons and the coach line stay as they were.
+   */
+  private updateTutorial(dt: number, paused: boolean) {
+    for (const g of ['pinch', 'flick', 'palm', 'wall'] as const) {
+      if (this.gestureLog.fired[g] > 0 && !this.learned.has(g)) {
+        this.learned.add(g);
+        saveLearned(this.learned);
+      }
+    }
+    const live = !!this.world.session && !paused && this.game.status === 'playing' && !this.isGuest;
+    if (!this.ghost) {
+      if (!live) return;
+      this.ghost = new GhostHand();
+      this.world.scene.add(this.ghost);
+    }
+    const ghost = this.ghost;
+    if (!live) return ghost.stop();
+
+    if (ghost.playing) {
+      // Stop as soon as it is learned or its moment has passed.
+      const r = this.demoTarget ? this.game.robot(this.demoTarget) : undefined;
+      const gesture = ghost.playing as 'pinch' | 'flick' | 'palm' | 'wall';
+      const stillNeeded =
+        !this.learned.has(gesture) &&
+        (gesture === 'pinch' ? r?.state === 'proposed' && !this.tokens.some((t) => t.entity.hasComponent(Grabbed)) : gesture === 'flick' ? r?.state === 'proposed' : gesture === 'palm' ? r?.state === 'executing' : true);
+      if (!stillNeeded || !ghost.update(dt)) {
+        ghost.stop();
+        this.demoRestAt = this.clock;
+      }
+      return;
+    }
+    if (this.clock - this.demoRestAt < 1.2) return;
+
+    const want = (g: string) => !this.learned.has(g) && (this.demoCount[g] ?? 0) < 4;
+    const proposed = this.game.robots.filter((r) => r.state === 'proposed');
+    const moving = this.game.robots.filter((r) => r.state === 'executing');
+    let name: string | null = null;
+    let target: string | null = null;
+    // A shortcut on offer is the moment to show the flick; otherwise teach the permit first.
+    const trap = proposed.find((r) => r.trap);
+    if (trap && want('flick')) [name, target] = ['flick', trap.id];
+    else if (proposed[0] && want('pinch') && this.ready && this.clock - (this.askingSince.get(proposed[0].id) ?? this.clock) > 1) [name, target] = ['pinch', proposed[0].id];
+    else if (moving[0] && this.game.workers.length && want('palm')) [name, target] = ['palm', moving[0].id];
+    else if (this.game.level.id === 'L06' && (proposed[0] ?? moving[0]) && want('wall')) [name, target] = ['wall', (proposed[0] ?? moving[0])!.id];
+    if (!name || !target) return;
+    const keys = this.demoKeys(name, target);
+    if (!keys) return;
+    this.demoCount[name] = (this.demoCount[name] ?? 0) + 1;
+    this.demoTarget = target;
+    ghost.play(name, keys, 1);
+  }
+
+  /** Key poses for each demonstration, built on the board where it is now. */
+  private demoKeys(name: string, robotId: string): GhostKey[] | null {
+    const V = () => new Vector3();
+    const content = this.view.content;
+    const up = new Vector3(0, 1, 0).applyQuaternion(content.getWorldQuaternion(new Quaternion()));
+    const centre = content.getWorldPosition(V());
+    const head = this.world.player.head.getWorldPosition(V());
+    // Toward the player along the board, away from them, and across.
+    const toward = head.clone().sub(centre).projectOnPlane(up).normalize();
+    const away = toward.clone().negate();
+    const across = V().crossVectors(up, toward).normalize();
+    const down = up.clone().negate();
+    const robot = this.view.robotWorld(robotId, V());
+    const r = this.game.robot(robotId)!;
+    const at = (p: Vector3, ...offsets: [Vector3, number][]) => offsets.reduce((v, [d, k]) => v.addScaledVector(d, k), p.clone());
+    const reach = away.clone().addScaledVector(down, 0.9).normalize(); // fingers forward and down
+
+    switch (name) {
+      case 'pinch': {
+        const token = this.ready?.entity.object3D?.getWorldPosition(V());
+        if (!token) return null;
+        return [
+          { pose: 'open', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0, hold: 0.4 },
+          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.004]), fingers: reach, palm: down, move: 0.4, hold: 0.25, carrying: true },
+          { pose: 'pinch', anchor: 'pinch', at: at(token, [up, 0.06]), fingers: reach, palm: down, move: 0.3, hold: 0, carrying: true },
+          { pose: 'pinch', anchor: 'pinch', at: at(robot, [up, 0.07]), fingers: reach, palm: down, move: 0.9, hold: 0.2, carrying: true },
+          { pose: 'open', anchor: 'pinch', at: at(robot, [up, 0.06]), fingers: reach, palm: down, move: 0.25, hold: 0.6 },
+        ];
+      }
+      case 'flick': {
+        const path = this.view.pathWorld(r);
+        const mid = path[Math.min(2, path.length - 1)] ?? robot;
+        const point = away.clone().addScaledVector(down, 0.75).normalize();
+        return [
+          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.012]), fingers: point, palm: down, move: 0, hold: 0.7 },
+          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.02], [across, 0.14]), fingers: point, palm: down, move: 0.18, hold: 0.5 },
+        ];
+      }
+      case 'palm': {
+        // Palm up in front of the robot, facing it, pushed a little toward it.
+        const p = at(robot, [toward, 0.16], [up, 0.09]);
+        return [
+          { pose: 'open', anchor: 'palm', at: at(p, [toward, 0.05]), fingers: up, palm: away, move: 0, hold: 0.25 },
+          { pose: 'open', anchor: 'palm', at: p, fingers: up, palm: away, move: 0.3, hold: 1 },
+        ];
+      }
+      case 'wall': {
+        const path = this.view.pathWorld(r);
+        const cell = path[Math.floor(path.length / 2)] ?? robot;
+        return [
+          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.11]), fingers: away, palm: down, move: 0, hold: 0.3 },
+          { pose: 'flat', anchor: 'palm', at: at(cell, [up, 0.035]), fingers: away, palm: down, move: 0.6, hold: 1.3 },
+        ];
+      }
+    }
+    return null;
+  }
+
   /** Draw the player's hands from their joints. Call once, in emulator mode. */
   drawHands() {
     if (this.drawnHands) return;
@@ -1699,3 +1826,19 @@ function farZOf(view: BoardView) {
 }
 
 export { TILE };
+
+const LEARNED_KEY = 'clearance.learned.v1';
+function loadLearned(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(LEARNED_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function saveLearned(s: Set<string>) {
+  try {
+    localStorage.setItem(LEARNED_KEY, JSON.stringify([...s]));
+  } catch {
+    // storage unavailable: demos simply show again next time
+  }
+}
