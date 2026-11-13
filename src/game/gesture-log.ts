@@ -55,7 +55,7 @@ export class GestureLog {
       `fired  ${Object.entries(this.fired).map(([k, v]) => `${k} ${v}`).join('  ')}`,
       `nearly ${Object.entries(this.near).map(([k, v]) => `${k} ${v}`).join('  ')}`,
       `pinch gaps missed (m, needs < ${GESTURE.pinchOn}): ${r(this.pinchGaps)}`,
-      `flicks too slow (m/s, needs ${GESTURE.flickSpeed}): ${r(this.slowFlicks, 2)}`,
+      `brushes too slow (m/s, needs ${GESTURE.flickSpeed}): ${r(this.slowFlicks, 2)}`,
       `palm angles missed (deg, needs < ${((Math.acos(GESTURE.palmConeCos) * 180) / Math.PI).toFixed(0)}): ${r(this.palmAngles, 0)}`,
     ].join('\n');
   }

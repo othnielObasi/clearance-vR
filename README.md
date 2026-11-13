@@ -2,7 +2,7 @@
 
 **Tiny robots plan. Nothing moves without your clearance.**
 
-A hands-first, seated mixed-reality puzzle game for Meta Quest, built with the Immersive Web SDK (WebXR). Autonomous robots work on your real table: each one picks its own task, plans its own route and shows it as a glowing ghost path. You are the authority. Hand a robot a permit to let it move, flick away a bad plan, or hold up your palm to stop it.
+A hands-first, seated mixed-reality puzzle game for Meta Quest, built with the Immersive Web SDK (WebXR). Autonomous robots work on your real table: each one picks its own task, plans its own route and shows it as a glowing ghost path. You are the authority. Hand a robot a permit to let it move, brush a bad plan aside, or hold up your palm to stop it.
 
 Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Experience division. Project started 5 November 2026.
 
@@ -11,7 +11,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Action | Hands | Poke / click alternative |
 | --- | --- | --- |
 | Clear a robot to move | Pinch a permit from the dispenser and drop it on a robot that is waiting (blinking amber light) | Press ✓ above the robot |
-| Reject a plan | Flick your index finger sideways across the ghost path | Press ✗ above the robot |
+| Reject a plan | Brush the ghost path aside: fingers on it, one quick sideways sweep | Press ✗ above the robot |
 | Stop one robot | Open palm facing the robot, hold briefly | Press ■ above the robot |
 | Stop everything | Both palms up, hold briefly | Press the red ■ on the dispenser |
 | Move the board | Pinch the cyan handle at the near edge | — |
@@ -22,7 +22,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 
 Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
 
-**Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness: pinches and open hands register more loosely, the palm can point less exactly, a slower flick rejects, and the buttons above each robot are 40% bigger and always shown instead of appearing only when a hand comes near. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking (the eye button) covers players who cannot lean.
+**Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness: pinches and open hands register more loosely, the palm can point less exactly, a slower brush rejects, and the buttons above each robot are 40% bigger and always shown instead of appearing only when a hand comes near. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking (the eye button) covers players who cannot lean.
 
 Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits: more work than permits, so you must delegate, and delegating to the wrong robot loses the shift), 6 Close the Aisle (a worker paces a busy aisle: stop robots in time, or close the aisle with your hand or a real object), 7 Peak Season (the finale: four robots, both rule-benders, a worker, a spill, tall racking and earned gold permits).
 
@@ -38,11 +38,11 @@ Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (worker
 
 **Your real hands in front of the board.** In the headset the toolkit's own hand models are switched off, so you see your real hands through passthrough, and an invisible, depth-only copy of each tracked hand is drawn first, slightly oversized for tracking lag. So the board and robots never draw over your real hand, and the hand properly covers what is behind it. In the emulator, which has no passthrough, the hands are drawn instead; add `&occluders` to see the headset behaviour (the hand shows as a cut-out).
 
-**Ghost-hand tutorial.** The first time a gesture is needed, a translucent hand acts it out on the real board: pinching the permit and dropping it on the waiting robot, resting a finger on a shortcut and flicking it away, holding a palm up to a moving robot near a worker, laying a flat hand across the aisle in Close the Aisle. It stops the moment the player does the gesture themselves (remembered between sessions), and shows at most four times a level. Hand shapes come from the emulator's MIT-licensed pose library.
+**Ghost-hand tutorial.** The first time a gesture is needed, a translucent hand acts it out on the real board: pinching the permit and dropping it on the waiting robot, brushing a shortcut aside, holding a palm up to a moving robot near a worker, laying a flat hand across the aisle in Close the Aisle. It stops the moment the player does the gesture themselves (remembered between sessions), and shows at most four times a level. Hand shapes come from the emulator's MIT-licensed pose library.
 
 **Filming without a headset.** `node scripts/film.cjs [scene ...]` (with `npm run preview` running, Playwright and ffmpeg installed) records scripted scenes in the emulator: `firstPermit`, `flick`, `palmStop`, `handWall`, `gold`. A shim takes over the page's frame loop so each frame advances exactly 1/30 s (`FPS=60` for smoother) however slowly the machine renders; emulated hands act out each gesture and the head sways slightly as a seated player's would. Output is `film/<scene>.mp4` at 1280×720 (set `W` and `H` for other sizes). Label it as emulator footage in the video.
 
-**Fail-safes for untuned gestures.** If a pinch, palm or flick nearly works (the hand is in the right place but just short of the threshold), the poke buttons appear for 12 seconds and the coach says what to do. After three near misses in a shift they stay for the rest of it, and any robot left asking for 8 seconds shows its buttons. A flick only counts when the fingertip rested on the plan first, so reaching across the table can't reject a plan by accident.
+**Fail-safes for untuned gestures.** The game stays hands-first: a first near miss (a pinch, palm or brush in the right place but just short of the threshold) only earns a coach hint. From the second, the poke buttons appear for 12 seconds; after four in a shift they stay for the rest of it, and any robot left asking for 12 seconds shows its buttons. A brush only counts when the fingertips rested on the plan first, so reaching across the table can't reject a plan by accident.
 
 ## Run it
 

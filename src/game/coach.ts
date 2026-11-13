@@ -17,7 +17,7 @@ const FIRST: Partial<Record<string, Partial<Record<string, string>>>> = {
   L01: {
     proposed: 'Pinch a permit and drop it on the robot.',
     granted: 'Cleared. It moves only on your permit.',
-    trap: 'That path crosses the spill. Flick it away, or press ✗.',
+    trap: 'That path crosses the spill. Brush it aside, or press ✗.',
     trapRejected: 'Good call. It replans the safe way.',
     // Taught once the basics land: the hand-wall, and real objects.
     delivered2: 'Try it: rest a flat hand on the floor. It is a wall.',

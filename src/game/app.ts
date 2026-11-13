@@ -1585,10 +1585,11 @@ export class ClearanceApp {
       case 'flick': {
         const path = this.view.pathWorld(r);
         const mid = path[Math.min(2, path.length - 1)] ?? robot;
-        const point = away.clone().addScaledVector(down, 0.75).normalize();
+        // Brushing crumbs off a table: fingers down on the plan, palm leading, one sweep sideways.
+        const brush = down.clone().addScaledVector(away, 0.5).normalize();
         return [
-          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.012]), fingers: point, palm: down, move: 0, hold: 0.98 },
-          { pose: 'point', anchor: 'index-tip', at: at(mid, [up, 0.02], [across, 0.14]), fingers: point, palm: down, move: 0.25, hold: 0.7 },
+          { pose: 'open', anchor: 'index-tip', at: at(mid, [up, 0.01], [across, -0.03]), fingers: brush, palm: across, move: 0, hold: 0.9 },
+          { pose: 'open', anchor: 'index-tip', at: at(mid, [up, 0.03], [across, 0.17]), fingers: brush, palm: across, move: 0.22, hold: 0.7 },
         ];
       }
       case 'palm': {
@@ -1657,10 +1658,17 @@ export class ClearanceApp {
   private gestureNearMiss(kind: 'pinch' | 'palm' | 'flick', value: number) {
     this.gestureLog.nearMiss(kind, value);
     this.nearMisses++;
-    this.buttonsUntil = this.clock + 12;
-    if (this.nearMisses >= 3) this.buttonsAlways = true;
+    // Hands first: one near miss only earns a hint. The buttons come up from the second, and stay
+    // for the rest of the shift from the fourth.
+    if (this.nearMisses >= 2) this.buttonsUntil = this.clock + 12;
+    if (this.nearMisses >= 4) this.buttonsAlways = true;
+    const poke = this.nearMisses >= 2;
     this.coach.say(
-      kind === 'pinch' ? 'Pinch thumb and finger together, or poke the green tick.' : kind === 'flick' ? 'Flick faster, or poke the orange cross.' : 'Face your palm at it, or poke the red square.',
+      kind === 'pinch'
+        ? `Pinch thumb and finger together${poke ? ', or poke the green tick' : ''}.`
+        : kind === 'flick'
+          ? `Brush it aside a little faster${poke ? ', or poke the orange cross' : ''}.`
+          : `Face your palm at it${poke ? ', or poke the red square' : ''}.`,
       3,
     );
   }
@@ -1749,7 +1757,7 @@ export class ClearanceApp {
       if (r.state === 'proposed') {
         if (!this.askingSince.has(r.id)) this.askingSince.set(r.id, this.clock);
       } else this.askingSince.delete(r.id);
-      const stalled = this.clock - (this.askingSince.get(r.id) ?? this.clock) > 8;
+      const stalled = this.clock - (this.askingSince.get(r.id) ?? this.clock) > 12;
       const near =
         this.assist ||
         this.buttonsAlways ||
