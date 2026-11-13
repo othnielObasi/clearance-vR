@@ -1611,11 +1611,17 @@ export class ClearanceApp {
     return null;
   }
 
-  /** Draw the player's hands from their joints. Call once, in emulator mode. */
-  drawHands() {
+  /**
+   * Hands in mixed reality. On a headset the player sees their real hands through passthrough, so
+   * the toolkit's own hand models are switched off and an invisible, depth-only copy of each hand
+   * is drawn first: the board and robots then never draw over the real hand. In the emulator
+   * (`visible`), where there is no passthrough, the copies are drawn as skin-toned hands instead.
+   */
+  setupHands(visible: boolean) {
     if (this.drawnHands) return;
+    for (const side of ['left', 'right'] as const) this.world.input?.visualAdapters?.hand?.[side]?.toggleVisual(false);
     this.tracker.readAllJoints = true;
-    const make = () => new HandModel({ color: 0xd9a988 });
+    const make = () => new HandModel(visible ? { color: 0xd9a988 } : { color: 0, occluder: true });
     this.drawnHands = { left: make(), right: make() };
     for (const h of Object.values(this.drawnHands)) {
       h.visible = false;
@@ -1628,9 +1634,7 @@ export class ClearanceApp {
     for (const side of ['left', 'right'] as const) {
       const all = this.tracker.allJoints[side];
       const model = this.drawnHands[side];
-      // If the toolkit's own hand model loaded (it comes from a CDN), it is already drawn.
-      const theirs = this.world.input?.visualAdapters?.hand?.[side]?.visual?.model;
-      model.visible = all.ok && !!this.world.session && !(theirs?.visible && theirs.parent);
+      model.visible = all.ok && !!this.world.session;
       if (model.visible) model.setJoints(all.points, all.radii);
     }
   }

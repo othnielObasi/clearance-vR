@@ -51,7 +51,15 @@ export interface HandLook {
   color: number;
   opacity?: number;
   emissive?: number;
+  /**
+   * Draw nothing, only depth, before everything else: virtual things behind the hand are then not
+   * drawn, so the player's real hand (seen through passthrough) appears in front of the board.
+   */
+  occluder?: boolean;
 }
+
+/** Occluders are a little fatter than the joints, to cover tracking lag and passthrough warping. */
+const OCCLUDER_SCALE = 1.25;
 
 export class HandModel extends Object3D {
   private joints: InstancedMesh;
@@ -62,9 +70,11 @@ export class HandModel extends Object3D {
   private d = new Vector3();
   private yAxis = new Vector3(0, 1, 0);
   readonly material: MeshStandardMaterial;
+  private radiusScale = 1;
 
   constructor(look: HandLook) {
     super();
+    if (look.occluder) this.radiusScale = OCCLUDER_SCALE;
     const translucent = (look.opacity ?? 1) < 1;
     this.material = new MeshStandardMaterial({
       color: look.color,
@@ -77,19 +87,20 @@ export class HandModel extends Object3D {
       depthWrite: true,
       emissive: new Color(look.emissive ?? 0x000000),
       emissiveIntensity: look.emissive ? 0.9 : 0,
+      colorWrite: !look.occluder,
     });
     this.joints = new InstancedMesh(new SphereGeometry(1, 12, 8), this.material, HAND_JOINTS.length);
     this.bones = new InstancedMesh(new CylinderGeometry(1, 1, 1, 10, 1, true), this.material, BONES.length);
     for (const im of [this.joints, this.bones]) {
       im.frustumCulled = false;
-      im.renderOrder = translucent ? 8 : 0;
+      im.renderOrder = look.occluder ? -100 : translucent ? 8 : 0;
     }
     this.add(this.joints, this.bones);
   }
 
   /** Pose the hand from joint positions in this object's parent space, in HAND_JOINTS order. */
   setJoints(p: Vector3[], radii?: number[]) {
-    const r = (i: number) => radii?.[i] ?? defaultRadius(i);
+    const r = (i: number) => (radii?.[i] ?? defaultRadius(i)) * this.radiusScale;
     for (let i = 0; i < HAND_JOINTS.length; i++) {
       const k = r(i) * 0.95;
       this.m.compose(p[i]!, this.q.identity(), this.s.set(k, k, k));

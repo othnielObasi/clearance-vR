@@ -65,8 +65,9 @@ async function boot() {
   world.registerSystem(DepthSensingSystem, { configData: { enableOcclusion: true, enableDepthTexture: true, useFloat32: true } });
   world.registerSystem(makeClearanceSystem(() => app));
   app = new ClearanceApp(world);
-  // The emulator has no passthrough to show your real hands, so draw them.
-  if (params.has('emulate')) app.drawHands();
+  // Real hands show through passthrough and hide the board behind them; the emulator, which has no
+  // passthrough, draws them instead (?occluders shows the headset behaviour in the emulator).
+  app.setupHands(params.has('emulate') && !params.has('occluders'));
   // ?debug exposes the app for automated browser tests and playtest tooling.
   if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { clearance: app });
 
