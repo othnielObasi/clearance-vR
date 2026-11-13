@@ -40,6 +40,7 @@ import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
+import { GestureLog } from './gesture-log';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
@@ -89,6 +90,8 @@ interface RobotPanel {
 
 const DROP_RADIUS = 0.07;
 const FLICK_RADIUS = 0.05;
+/** A flick must start from a fingertip resting on the plan this long, so a passing reach doesn't count. */
+const FLICK_REST_SEC = 0.12;
 const BOARD_FORWARD = 0.42; // metres in front of the head
 const BOARD_BELOW = 0.42; // metres below the head (seated desk height)
 
@@ -99,6 +102,25 @@ const BOARD_BELOW = 0.42; // metres below the head (seated desk height)
 export class ClearanceApp {
   readonly sfx = new Sfx();
   readonly tracker = new HandTracker();
+  /** What gestures did on this device, for remote testers (see gesture-log.ts). */
+  readonly gestureLog = new GestureLog();
+  /** After a gesture nearly works, poke buttons stay shown until this time. */
+  private buttonsUntil = 0;
+  /** After repeated near misses, buttons stay shown for the rest of the shift. */
+  private buttonsAlways = false;
+  private nearMisses = 0;
+  private reportSaveIn = 5;
+  /** When a carried permit was last let go: robot buttons stay hidden just after, see below. */
+  private releasedAt = -10;
+  private nearPalm = { left: 0, right: 0 };
+  private nearPinch = { left: 0, right: 0 };
+  private slowFlickAt = 0;
+  /** How long each index tip has rested on a proposed plan: a flick must start there. */
+  private onPath = { left: 0, right: 0 };
+  /** The plan each fingertip last rested on, and when it left it. */
+  private lastPlan: Record<'left' | 'right', { id: string; at: number } | null> = { left: null, right: null };
+  /** When each robot started asking, so a stalled player is offered the buttons. */
+  private askingSince = new Map<string, number>();
   game!: Game;
   view!: BoardView;
   levelIndex = 0;
@@ -291,6 +313,12 @@ export class ClearanceApp {
 
   private start(level: LevelDef) {
     this.userPaused = false;
+    this.buttonsAlways = false;
+    this.buttonsUntil = 0;
+    this.nearMisses = 0;
+    this.askingSince.clear();
+    this.gestureLog.levels.add(level.id);
+    this.gestureLog.assist = this.assist;
     this.scanner?.reset();
     this.flushCrew();
     this.clearLevel();
@@ -815,6 +843,7 @@ export class ClearanceApp {
     if (!t || t.permitId) return;
     const p = t.gold ? this.game.takeGold() : this.game.dispensePermit();
     if (!p) return;
+    this.gestureLog.fire('pinch');
     t.permitId = p.id;
     if (this.ready === t) this.ready = undefined;
     if (this.goldReady === t) this.goldReady = undefined;
@@ -822,6 +851,7 @@ export class ClearanceApp {
   }
 
   onRelease(entity: Entity) {
+    this.releasedAt = this.clock;
     if (entity === this.handle) {
       this.boardYaw = this.yawTowardHead(this.handle.object3D!.position);
       if (this.world.session) this.deskAnchor.place(this.handle.object3D!.position, this.boardYaw);
@@ -903,6 +933,13 @@ export class ClearanceApp {
       this.room.rotation.y = this.boardYaw;
     }
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
+    if (this.world.session) {
+      this.gestureLog.frame(dt);
+      if ((this.reportSaveIn -= dt) <= 0) {
+        this.reportSaveIn = 5;
+        this.gestureLog.save();
+      }
+    }
 
     this.view.hands = (['left', 'right'] as const).filter((s) => this.tracker.hands[s].tracked).map((s) => this.tracker.hands[s].indexTip);
     this.updatePalmMenu(dt);
@@ -1100,6 +1137,7 @@ export class ClearanceApp {
       addAround(this.debugHand[0], this.debugHand[1]);
     }
     // A short hold filters out hands passing over the board on the way to a permit.
+    if (flat && this.handHold <= 0.15 && this.handHold + dt > 0.15) this.gestureLog.fire('wall');
     this.handHold = flat ? this.handHold + dt : 0;
     const active = this.handHold > 0.15 || (!!this.debugHand && flat);
     const walls: Cell[] = active ? [...cells] : [];
@@ -1309,6 +1347,7 @@ export class ClearanceApp {
     for (const h of [left, right]) {
       const hold = this.holdPalmUp[h.side].step(up(h) && !both, 'menu', dt, 0.4);
       if (hold.fire && this.game.status === 'playing') {
+        this.gestureLog.fire('menu');
         this.palmSide = h.side;
         this.palmShownUntil = this.clock + 4;
       }
@@ -1332,12 +1371,16 @@ export class ClearanceApp {
     // Both palms up and open: stop everything.
     const bothUp = left.tracked && right.tracked && left.open && right.open && left.palmNormal.y > GESTURE.palmUpY && right.palmNormal.y > GESTURE.palmUpY;
     const all = this.holdBoth.step(bothUp, 'all', dt, GESTURE.bothPalmsHoldSec);
-    if (all.fire) this.stopAll();
+    if (all.fire) {
+      this.gestureLog.fire('all');
+      this.stopAll();
+    }
 
     for (const h of [left, right]) {
       const ring = this.palmRings[h.side];
       // One open palm facing a robot: stop that robot.
       let target: string | null = null;
+      let closest = -1; // best palm-to-robot alignment, hit or not
       if (h.tracked && h.open && !bothUp && !this.flatOnBoard[h.side]) {
         let bestDot = GESTURE.palmConeCos;
         for (const r of this.game.robots) {
@@ -1346,14 +1389,25 @@ export class ClearanceApp {
           const dist = to.length();
           if (dist < GESTURE.palmMinDist || dist > GESTURE.palmMaxDist) continue;
           const dot = to.normalize().dot(h.palmNormal);
+          closest = Math.max(closest, dot);
           if (dot > bestDot) {
             bestDot = dot;
             target = r.id;
           }
         }
       }
+      // A palm held up near a moving robot, but pointing a little off, is a near miss.
+      const nearCone = Math.cos(Math.acos(GESTURE.palmConeCos) + (20 * Math.PI) / 180);
+      this.nearPalm[h.side] = !target && closest > nearCone ? this.nearPalm[h.side] + dt : 0;
+      if (this.nearPalm[h.side] > 0.8) {
+        this.nearPalm[h.side] = -2; // once per attempt
+        this.gestureNearMiss('palm', (Math.acos(Math.min(1, closest)) * 180) / Math.PI);
+      }
       const hold = this.holdHand[h.side].step(target !== null, target, dt, GESTURE.palmHoldSec);
-      if (hold.fire && target) this.stopRobot(target);
+      if (hold.fire && target) {
+        this.gestureLog.fire('palm');
+        this.stopRobot(target);
+      }
       ring.visible = hold.progress > 0.05 || (bothUp && all.progress > 0.05);
       if (ring.visible) {
         ring.position.copy(h.palm).addScaledVector(h.palmNormal, 0.03);
@@ -1363,21 +1417,81 @@ export class ClearanceApp {
       }
 
       // Flick: a fast sideways index-tip swipe that starts on a proposed path rejects it.
-      if (!h.tracked || h.pinching || this.flickCooldown > 0) continue;
+      this.checkPinchNearMiss(h, dt);
+      if (!h.tracked || h.pinching) {
+        this.onPath[h.side] = 0;
+        continue;
+      }
       const speed = Math.hypot(h.velocity.x, h.velocity.z);
-      if (speed < GESTURE.flickSpeed) continue;
+      // Which plan the fingertip is on now, and whether it rested there before moving off.
+      // A hand reaching across the table at speed passes over a plan too quickly to count.
+      let onPlan: string | null = null;
       for (const r of this.game.robots) {
         if (r.state !== 'proposed') continue;
         const near =
           this.view.robotWorld(r.id, this.tmp).distanceTo(h.indexTip) < FLICK_RADIUS ||
           this.view.pathWorld(r).some((p) => p.distanceTo(h.indexTip) < FLICK_RADIUS);
         if (near) {
-          this.rejectRobot(r.id);
-          this.flickCooldown = GESTURE.flickCooldown;
+          onPlan = r.id;
           break;
         }
       }
+      const last = this.lastPlan[h.side];
+      if (onPlan) {
+        if (last?.id !== onPlan) this.onPath[h.side] = 0;
+        if (speed < GESTURE.flickSpeed * 0.5) this.onPath[h.side] += dt;
+        this.lastPlan[h.side] = { id: onPlan, at: this.clock };
+      } else if (!last || this.clock - last.at > 0.25) {
+        this.onPath[h.side] = 0;
+        this.lastPlan[h.side] = null;
+      }
+      // The swipe may already have carried the fingertip off the plan it rested on.
+      const candidate = this.lastPlan[h.side]?.id ?? null;
+      const rested = this.onPath[h.side] >= FLICK_REST_SEC;
+      // Tracking jumps (a hand lost and found again) are not flicks.
+      if (this.flickCooldown > 0 || speed < GESTURE.flickSpeed * 0.55 || speed > 6 || !rested || !candidate) continue;
+      for (const r of this.game.robots) {
+        if (r.id !== candidate || r.state !== 'proposed') continue;
+        if (speed >= GESTURE.flickSpeed) {
+          this.gestureLog.fire('flick');
+          this.rejectRobot(r.id);
+          this.flickCooldown = GESTURE.flickCooldown;
+          this.onPath[h.side] = 0;
+          this.lastPlan[h.side] = null;
+        } else if (this.clock - this.slowFlickAt > 1.5) {
+          // A swipe across the plan that was not quite fast enough.
+          this.slowFlickAt = this.clock;
+          this.gestureNearMiss('flick', speed);
+        }
+        break;
+      }
     }
+  }
+
+  /** A hand hovering on a permit, fingers almost together, for a while: the pinch did not register. */
+  private checkPinchNearMiss(h: { side: 'left' | 'right'; tracked: boolean; pinching: boolean; pinchDist: number; indexTip: Vector3 }, dt: number) {
+    const token = this.ready?.entity.object3D;
+    const close =
+      !!token && h.tracked && !h.pinching && !this.ready!.permitId &&
+      h.pinchDist < GESTURE.pinchOn * 2.2 &&
+      token.getWorldPosition(this.tmp).distanceTo(h.indexTip) < 0.05;
+    this.nearPinch[h.side] = close ? this.nearPinch[h.side] + dt : 0;
+    if (this.nearPinch[h.side] > 0.8) {
+      this.nearPinch[h.side] = -2;
+      this.gestureNearMiss('pinch', h.pinchDist);
+    }
+  }
+
+  /** A gesture nearly worked: log it, and make sure the poke buttons are there to fall back on. */
+  private gestureNearMiss(kind: 'pinch' | 'palm' | 'flick', value: number) {
+    this.gestureLog.nearMiss(kind, value);
+    this.nearMisses++;
+    this.buttonsUntil = this.clock + 12;
+    if (this.nearMisses >= 3) this.buttonsAlways = true;
+    this.coach.say(
+      kind === 'pinch' ? 'Pinch thumb and finger together, or poke the green tick.' : kind === 'flick' ? 'Flick faster, or poke the orange cross.' : 'Face your palm at it, or poke the red square.',
+      3,
+    );
   }
 
   private makePalmRing() {
@@ -1459,12 +1573,24 @@ export class ClearanceApp {
       // On desktop (no tracked hands) they are always shown.
       const hands = this.view.hands;
       // Assist mode keeps them shown, so nobody has to reach to find them.
+      // Fail-safes: buttons also show after a gesture nearly worked, and for any robot left
+      // asking for 8 seconds, so nobody is ever stuck on a gesture.
+      if (r.state === 'proposed') {
+        if (!this.askingSince.has(r.id)) this.askingSince.set(r.id, this.clock);
+      } else this.askingSince.delete(r.id);
+      const stalled = this.clock - (this.askingSince.get(r.id) ?? this.clock) > 8;
       const near =
         this.assist ||
+        this.buttonsAlways ||
+        this.clock < this.buttonsUntil ||
+        stalled ||
         hands.length === 0 ||
         hands.some((h) => this.view.robotWorld(r.id, this.tmp2).distanceTo(h) < 0.14);
-      const proposed = playing && r.state === 'proposed' && near;
-      const moving = playing && r.state === 'executing' && near;
+      // A hand carrying a permit down onto a robot passes right where its buttons sit, so they
+      // stay hidden while a permit is held and just after it is dropped: no accidental ✗.
+      const carrying = this.tokens.some((t) => t.entity.hasComponent(Grabbed)) || this.clock - this.releasedAt < 0.5;
+      const proposed = playing && r.state === 'proposed' && near && !carrying;
+      const moving = playing && r.state === 'executing' && near && !carrying;
       const auto = this.game.isAutonomous(r);
       panel.grant.mesh.visible = proposed;
       panel.reject.mesh.visible = proposed;

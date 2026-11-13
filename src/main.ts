@@ -3,6 +3,7 @@ import { DepthSensingSystem, ReferenceSpaceType, SessionMode, World } from '@iws
 import qrcode from 'qrcode-generator';
 import { dailySeed } from './core/rng';
 import { ClearanceApp } from './game/app';
+import { GestureLog } from './game/gesture-log';
 import { CoopLink } from './net/coop';
 import { SERVER_URL } from './net/server';
 import { overtimeBest, streakEnding } from './game/progress';
@@ -175,7 +176,34 @@ async function boot() {
     // On desktop the card appears over the board; in the headset, when the player takes it off.
     body.classList.add('result');
   };
-  app.onExitXR = () => body.classList.remove('playing', 'in-xr');
+  app.onExitXR = () => {
+    app?.gestureLog.save();
+    body.classList.remove('playing', 'in-xr');
+    showReport();
+  };
+
+  // Testers: open with ?debug, play a shift, take the headset off (or come back to this page),
+  // then copy the gesture report and send it. It never leaves the device by itself.
+  function showReport() {
+    if (!params.has('debug')) return;
+    const text = GestureLog.saved();
+    if (!text) return;
+    let box = document.getElementById('report');
+    if (!box) {
+      box = document.createElement('section');
+      box.id = 'report';
+      box.className = 'block report';
+      box.innerHTML = '<h2>Test report</h2><p class="intro">Thanks for testing. Copy this and send it back.</p><pre></pre><button class="permit" type="button">Copy test report</button>';
+      document.querySelector('.hero')?.after(box);
+      const btn = box.querySelector('button')!;
+      btn.addEventListener('click', async () => {
+        await navigator.clipboard?.writeText(box!.querySelector('pre')!.textContent ?? '').catch(() => {});
+        btn.textContent = 'Copied';
+      });
+    }
+    box.querySelector('pre')!.textContent = text;
+  }
+  showReport();
   $<HTMLButtonElement>('copy').addEventListener('click', async () => {
     await navigator.clipboard?.writeText($<HTMLPreElement>('shareText').textContent ?? '').catch(() => {});
     $<HTMLButtonElement>('copy').textContent = 'Copied';

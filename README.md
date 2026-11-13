@@ -32,7 +32,11 @@ Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (worker
 
 **Your real desk matters.** On entering the headset the game finds your real table from the Quest's room setup (WebXR plane detection) and rests the board on it, falling back to a hit-test ray and then to a head-relative position; a spatial anchor keeps it there. The headset's depth sensor then watches the board: put a mug, a bottle or a box on it, take your hand away, and after about a second the cells under it become walls that robots plan round, just like a flat hand. Scans pause while a hand is over the board so arms never count, and pickup and drop-off spots are never blocked. Add `?occlusion` to let real hands and objects hide the robots behind them (off by default until tuned on a headset). Each shift ends with a field note linking its lesson to how real automated systems are supervised.
 
-**Tuning on a headset.** Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board.
+**Tuning on a headset.** Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board. The game also keeps a gesture report on the device (what fired, what nearly fired, the measured pinch gaps, flick speeds and palm angles, and the frame rate). After playing, come back to the page, still with `?debug`, and press **Copy test report**. This is how a remote tester with a Quest can send back real numbers for tuning. The report never leaves the device unless they copy it.
+
+**No headset? Use the emulator.** Add `?emulate` to the address (for example `http://localhost:5173/?emulate`, or the deployed site). Meta's Immersive Web Emulation Runtime replaces WebXR with an emulated Quest 3 with tracked hands, seated at the desk of a synthetic room. Start shift then runs the real mixed-reality session: the board snaps to the emulated desk, the depth scanner sees the room, and the on-screen controls move your head and hands and change hand poses. Use `?emulate=kitchen` (or `bedroom`, `open_office`, …) for another room, and `&nocontrols` to hide the controls when filming. Normal visitors never download the emulator.
+
+**Fail-safes for untuned gestures.** If a pinch, palm or flick nearly works (the hand is in the right place but just short of the threshold), the poke buttons appear for 12 seconds and the coach says what to do. After three near misses in a shift they stay for the rest of it, and any robot left asking for 8 seconds shows its buttons. A flick only counts when the fingertip rested on the plan first, so reaching across the table can't reject a plan by accident.
 
 ## Run it
 
@@ -43,6 +47,7 @@ npm install
 npm run dev        # HTTPS dev server on your LAN
 npm test           # planner, authority rules and headless level simulations
 npm run build      # static build in dist/
+npm run test:hands # with `npm run preview` running: every hand gesture, end to end, in the emulator
 ```
 
 **On a Quest:** run `npm run dev`, then open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.

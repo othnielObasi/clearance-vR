@@ -1,17 +1,19 @@
 import { Matrix4, Vector3 } from 'three';
 
 /** All gesture thresholds in one place, so accessibility settings can relax them. */
+// Defaults are set a little forgiving because they could not be tuned on a headset: the hold
+// timers, not tight thresholds, are what stop gestures firing by accident.
 export const GESTURE = {
-  pinchOn: 0.015,
-  pinchOff: 0.025,
+  pinchOn: 0.018,
+  pinchOff: 0.028,
   openTipDist: 0.13,
   palmHoldSec: 0.3,
-  palmConeCos: Math.cos((35 * Math.PI) / 180),
+  palmConeCos: Math.cos((40 * Math.PI) / 180),
   palmMaxDist: 0.6,
   palmMinDist: 0.06,
   bothPalmsHoldSec: 0.5,
   palmUpY: 0.7,
-  flickSpeed: 1.0,
+  flickSpeed: 0.85,
   flickCooldown: 0.6,
 };
 
@@ -48,6 +50,8 @@ export interface HandFrame {
   /** Unit normal pointing out of the palm. */
   palmNormal: Vector3;
   pinching: boolean;
+  /** Thumb tip to index tip, metres. */
+  pinchDist: number;
   open: boolean;
   /** Smoothed index-tip velocity, m/s. */
   velocity: Vector3;
@@ -74,6 +78,7 @@ const blank = (side: Handedness): HandFrame => ({
   palm: new Vector3(),
   palmNormal: new Vector3(0, -1, 0),
   pinching: false,
+  pinchDist: 1,
   open: false,
   velocity: new Vector3(),
 });
@@ -130,6 +135,7 @@ export class HandTracker {
     h.palmNormal.normalize();
 
     const pinchD = h.thumbTip.distanceTo(h.indexTip);
+    h.pinchDist = pinchD;
     h.pinching = h.pinching ? pinchD < GESTURE.pinchOff : pinchD < GESTURE.pinchOn;
     const tips = ['index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'] as const;
     const spread = tips.reduce((s, t) => s + P[t].distanceTo(P.wrist), 0) / tips.length;

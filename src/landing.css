@@ -369,6 +369,17 @@ body.xr .plain {
   padding: 18px 28px;
 }
 
+/* Tester report (only with ?debug). */
+.report pre {
+  margin: 0 0 18px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 14px/1.5 ui-monospace, monospace;
+}
+
 /* ------------------------------------------------------------------ in game */
 
 .back {

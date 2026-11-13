@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc",
-    "eval": "tsx scripts/eval.ts"
+    "eval": "tsx scripts/eval.ts",
+    "test:hands": "node scripts/hands-e2e.cjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
