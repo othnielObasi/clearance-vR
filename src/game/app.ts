@@ -41,7 +41,7 @@ import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
-import { HandModel } from '../xr/hand-model';
+import { HAND_JOINTS, HandModel } from '../xr/hand-model';
 import { GhostHand, type GhostKey } from '../xr/ghost-hand';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
@@ -92,6 +92,8 @@ interface RobotPanel {
 
 const DROP_RADIUS = 0.07;
 const FLICK_RADIUS = 0.05;
+/** Indices of the five fingertips in HAND_JOINTS. */
+const FINGERTIPS = HAND_JOINTS.flatMap((n, i) => (n.endsWith('-tip') ? [i] : []));
 /** A flick must start from a fingertip resting on the plan this long, so a passing reach doesn't count. */
 const FLICK_REST_SEC = 0.12;
 const BOARD_FORWARD = 0.42; // metres in front of the head
@@ -1453,12 +1455,14 @@ export class ClearanceApp {
       const speed = Math.hypot(h.velocity.x, h.velocity.z);
       // Which plan the fingertip is on now, and whether it rested there before moving off.
       // A hand reaching across the table at speed passes over a plan too quickly to count.
+      // Any fingertip counts: people brush with the little-finger edge as often as with a fingertip.
+      const joints = this.tracker.allJoints[h.side];
+      const tips = joints.ok ? FINGERTIPS.map((i) => joints.points[i]!) : [h.indexTip];
+      const touches = (p: Vector3) => tips.some((t) => t.distanceTo(p) < FLICK_RADIUS);
       let onPlan: string | null = null;
       for (const r of this.game.robots) {
         if (r.state !== 'proposed') continue;
-        const near =
-          this.view.robotWorld(r.id, this.tmp).distanceTo(h.indexTip) < FLICK_RADIUS ||
-          this.view.pathWorld(r).some((p) => p.distanceTo(h.indexTip) < FLICK_RADIUS);
+        const near = touches(this.view.robotWorld(r.id, this.tmp)) || this.view.pathWorld(r).some(touches);
         if (near) {
           onPlan = r.id;
           break;
@@ -1585,11 +1589,12 @@ export class ClearanceApp {
       case 'flick': {
         const path = this.view.pathWorld(r);
         const mid = path[Math.min(2, path.length - 1)] ?? robot;
-        // Brushing crumbs off a table: fingers down on the plan, palm leading, one sweep sideways.
-        const brush = down.clone().addScaledVector(away, 0.5).normalize();
+        // Clearing crumbs off a table: hand on its little-finger edge, fingers pointing away, palm
+        // leading, one low sweep sideways across the plan.
+        const brush = away.clone().addScaledVector(down, 0.3).normalize();
         return [
-          { pose: 'open', anchor: 'index-tip', at: at(mid, [up, 0.01], [across, -0.03]), fingers: brush, palm: across, move: 0, hold: 0.9 },
-          { pose: 'open', anchor: 'index-tip', at: at(mid, [up, 0.03], [across, 0.17]), fingers: brush, palm: across, move: 0.22, hold: 0.7 },
+          { pose: 'flat', anchor: 'palm', at: at(mid, [up, 0.045], [across, -0.05], [toward, 0.03]), fingers: brush, palm: across, move: 0, hold: 0.9 },
+          { pose: 'flat', anchor: 'palm', at: at(mid, [up, 0.055], [across, 0.17], [toward, 0.03]), fingers: brush, palm: across, move: 0.22, hold: 0.7 },
         ];
       }
       case 'palm': {

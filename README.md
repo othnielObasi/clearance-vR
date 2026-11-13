@@ -11,7 +11,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Action | Hands | Poke / click alternative |
 | --- | --- | --- |
 | Clear a robot to move | Pinch a permit from the dispenser and drop it on a robot that is waiting (blinking amber light) | Press ✓ above the robot |
-| Reject a plan | Brush the ghost path aside: fingers on it, one quick sideways sweep | Press ✗ above the robot |
+| Reject a plan | Brush the ghost path aside, as you'd clear crumbs off a table: one quick sideways sweep with any part of your fingers, fingertip or little-finger edge | Press ✗ above the robot |
 | Stop one robot | Open palm facing the robot, hold briefly | Press ■ above the robot |
 | Stop everything | Both palms up, hold briefly | Press the red ■ on the dispenser |
 | Move the board | Pinch the cyan handle at the near edge | — |

@@ -168,6 +168,24 @@ const results = [];
     await park('right');
   } else check('a sideways flick rejects the plan', false, 'no second proposal');
 
+  // 3a. A brush with the hand on its little-finger edge (how people clear a table) also rejects.
+  {
+    const live = await waitFor(() => window.clearance.game.robots.some((r) => r.state === 'proposed'), 25);
+    if (live) {
+      await call('clear');
+      const id = await page.evaluate(() => window.clearance.game.robots.find((r) => r.state === 'proposed').id);
+      const path = await call('path', id);
+      const mid = path[Math.min(2, path.length - 1)];
+      await remote('set_hand_pose', { device: 'hand-right', poseId: 'flat' });
+      await remote('set_transform', { device: 'hand-right', anchor: 'pinky-finger-tip', position: add(mid, -0.05, 0.01, 0), orientation: { fingers: 'forward', palm: 'right' } });
+      await gameSeconds(0.4);
+      await remote('animate_to', { device: 'hand-right', anchor: 'pinky-finger-tip', position: add(mid, 0.3, 0.02, 0), duration: 0.15 });
+      const brushed = await waitFor(() => window.T.had('rejected'), 2);
+      check('an edge-on brush with the little finger rejects the plan', brushed, await page.evaluate(() => window.events.join(',')));
+      await park('right');
+    } else check('an edge-on brush with the little finger rejects the plan', false, 'no proposal to brush');
+  }
+
   // 3b. A fast reach across the table, passing over a plan, must not reject it.
   {
     const live = await waitFor(() => window.clearance.game.robots.some((r) => r.state === 'proposed'), 25);
