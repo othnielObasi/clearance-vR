@@ -26,6 +26,14 @@ qr.addData(pageUrl);
 qr.make();
 $<HTMLDivElement>('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
 
+// ?emulate swaps in Meta's headset emulator (an emulated Quest 3 with hands in a synthetic room),
+// for testing and filming without a headset. It must be installed before anything asks navigator.xr.
+const params = new URLSearchParams(location.search);
+if (params.has('emulate')) {
+  const { installEmulator } = await import('./dev/emulate');
+  await installEmulator(params.get('emulate') || undefined, !params.has('nocontrols'));
+}
+
 // Decide early whether we're on a headset, so the page can lead with the buttons.
 const arCheck: Promise<boolean> = navigator.xr ? navigator.xr.isSessionSupported('immersive-ar').catch(() => false) : Promise.resolve(false);
 void arCheck.then((ok) => body.classList.toggle('xr', ok));

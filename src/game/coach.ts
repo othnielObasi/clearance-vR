@@ -40,6 +40,7 @@ const ANYWHERE: Record<string, string> = {
   held: 'Blocked, so it waits. Lift the hand or object away.',
   rerouted: 'It found a way round.',
   object: 'Real things on the board are walls. Robots plan round.',
+  obstructed: 'Something big is over the board. Move it with the handle.',
   lean: 'Tall racking hides things. Lean to look, or press the eye.',
   goldEarned: 'Gold permit: give it to a robot you trust.',
   delegated: 'It works alone now. Your palm still stops it.',

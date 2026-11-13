@@ -1110,6 +1110,7 @@ export class ClearanceApp {
       this.scanner.update(dt, this.boardFrame(), !this.handsOverBoard());
       const objects = this.scanner.cells.filter((c) => this.canWall(c));
       if (objects.length) this.coach.tip('object');
+      if (this.scanner.obstructed) this.coach.tip('obstructed');
       for (const c of objects) if (!walls.some((x) => x[0] === c[0] && x[1] === c[1])) walls.push(c);
     }
     this.myWalls = walls;

@@ -21,9 +21,12 @@
     "three": "npm:super-three@0.185.0"
   },
   "devDependencies": {
+    "@iwer/devui": "^2.8.0",
+    "@iwer/sem": "^2.8.0",
     "@types/three": "^0.185.4",
     "@types/webxr": "^0.5.24",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "iwer": "^2.8.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",

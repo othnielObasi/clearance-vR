@@ -35,6 +35,12 @@ const MIN_HEIGHT = 0.025; // metres above the board: a mug counts, the desk unde
 const MAX_HEIGHT = 0.35;
 const BLOCK_AFTER = 0.75; // seconds an object must stay before robots treat it as a wall
 const CLEAR_AFTER = 0.5;
+/**
+ * A mug, a phone or a box covers a few cells. Anything spanning more than this many connected
+ * cells is furniture the board overlaps (a monitor, a laptop, a keyboard): not a wall to play
+ * around, so it is ignored and the player is told to move the board instead.
+ */
+export const MAX_OBJECT_CELLS = 6;
 
 const FRAG = /* glsl */ `
 precision highp float;
@@ -45,9 +51,11 @@ uniform float uRawToMeters;
 uniform float uNear;
 uniform bool uGPU;
 uniform int uCount;
+// GLSL 3 has no gl_FragColor: declare the output explicitly.
+out highp vec4 scanOut;
 void main() {
   int i = int(gl_FragCoord.x);
-  if (i >= uCount) { gl_FragColor = vec4(0.0); return; }
+  if (i >= uCount) { scanOut = vec4(0.0); return; }
   vec2 uv = texelFetch(uUV, ivec2(i, 0), 0).xy;
   if (!uGPU) uv.y = 1.0 - uv.y;
   float v = texture(uDepth, vec3(uv, 0.0)).r;
@@ -56,7 +64,7 @@ void main() {
   float x = clamp(m / 8.0, 0.0, 0.99999);
   vec3 enc = fract(x * vec3(1.0, 255.0, 65025.0));
   enc -= enc.yzz * vec3(1.0 / 255.0, 1.0 / 255.0, 0.0);
-  gl_FragColor = vec4(enc, 1.0);
+  scanOut = vec4(enc, 1.0);
 }`;
 
 const VERT = /* glsl */ `
@@ -78,6 +86,8 @@ export class ObjectScanner {
   cells: Cell[] = [];
   /** True once real depth data has arrived this session. */
   available = false;
+  /** Something too big to be a game object overlaps the board (see MAX_OBJECT_CELLS). */
+  obstructed = false;
 
   private max: number;
   private uvData: Float32Array;
@@ -128,6 +138,7 @@ export class ObjectScanner {
   /** Forget everything (new level, or the board was moved). */
   reset() {
     this.cells = [];
+    this.obstructed = false;
     this.seen.clear();
     this.blocked.clear();
   }
@@ -230,6 +241,40 @@ export class ObjectScanner {
       if (s >= BLOCK_AFTER) this.blocked.add(k);
       else if (s <= BLOCK_AFTER - CLEAR_AFTER) this.blocked.delete(k);
     }
-    this.cells = [...this.blocked].map((k) => [k % w, Math.floor(k / w)] as Cell);
+    const { cells, obstructed } = splitObjects(this.blocked, w, h);
+    this.cells = cells;
+    this.obstructed = obstructed;
   }
+}
+
+/**
+ * Keep blocked areas small enough to be objects on the board; report anything larger
+ * (eight-connected, so a diagonal edge still counts as one thing) as an obstruction.
+ */
+export function splitObjects(blocked: Set<number>, w: number, h: number): { cells: Cell[]; obstructed: boolean } {
+  const cells: Cell[] = [];
+  let obstructed = false;
+  const done = new Set<number>();
+  for (const start of blocked) {
+    if (done.has(start)) continue;
+    const blob = [start];
+    done.add(start);
+    for (let i = 0; i < blob.length; i++) {
+      const k = blob[i]!;
+      const x = k % w;
+      const y = Math.floor(k / w);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const nk = ny * w + nx;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h || done.has(nk) || !blocked.has(nk)) continue;
+          done.add(nk);
+          blob.push(nk);
+        }
+    }
+    if (blob.length > MAX_OBJECT_CELLS) obstructed = true;
+    else for (const k of blob) cells.push([k % w, Math.floor(k / w)]);
+  }
+  return { cells, obstructed };
 }
