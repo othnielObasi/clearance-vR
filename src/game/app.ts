@@ -116,6 +116,8 @@ export class ClearanceApp {
   private buttonsAlways = false;
   private nearMisses = 0;
   private reportSaveIn = 5;
+  /** The session whose display rate has been set (see settleFrameRate). */
+  private rateSession?: XRSession;
   /** Keep looking for the real desk's outline (plane data can arrive late) until this time. */
   private outlineUntil = 0;
   private outlineCheckIn = 0;
@@ -1000,6 +1002,7 @@ export class ClearanceApp {
     this.coach.update(dt);
     if ((this.level.grid.tall ?? []).length && this.game.time > 6) this.coach.tip('lean');
     this.view.update(dt, this.clock);
+    this.settleFrameRate();
     this.updateDeskOutline(dt);
     this.updateTokens(dt);
     this.updateButtons();
@@ -1140,6 +1143,20 @@ export class ClearanceApp {
     this.handle.object3D!.position.set(p.x + toPlayer.x * off, p.y + 0.012, p.z + toPlayer.z * off);
     this.boardYaw = Math.atan2(toPlayer.x, toPlayer.z);
     this.scanner.reset();
+  }
+
+  /**
+   * Ask the headset for 72 Hz. A Quest 3 browser session may start at 90 Hz (11 ms a frame);
+   * 72 Hz is Meta's comfortable minimum and gives the game 14 ms a frame, so it stays smooth with
+   * the warehouse around the board. Once per session; ignored where the browser can't change it.
+   */
+  private settleFrameRate() {
+    const session = this.world.session as (XRSession & { supportedFrameRates?: Float32Array; frameRate?: number; updateTargetFrameRate?: (r: number) => Promise<void> }) | undefined;
+    if (!session || session === this.rateSession) return;
+    this.rateSession = session;
+    const rates = Array.from(session.supportedFrameRates ?? []);
+    if (!session.updateTargetFrameRate || !rates.includes(72) || (session.frameRate ?? 72) <= 72) return;
+    session.updateTargetFrameRate(72).catch(() => {});
   }
 
   /**
