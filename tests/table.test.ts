@@ -1,6 +1,6 @@
 import { Matrix4, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { findTable } from '../src/xr/table';
+import { findTable, findTableOutline } from '../src/xr/table';
 
 /** A fake XR frame with horizontal planes given as world-space rectangles. */
 function frameWith(planes: { y: number; x0: number; x1: number; z0: number; z1: number; label?: string; vertical?: boolean }[]) {
@@ -63,5 +63,24 @@ describe('findTable', () => {
 
   it('returns null without plane detection', () => {
     expect(findTable({} as XRFrame, ref, origin, head, forward)).toBeNull();
+  });
+});
+
+describe('findTableOutline', () => {
+  it('returns the outline of the table under the board', () => {
+    const f = frameWith([
+      { y: 0, x0: -3, x1: 3, z0: -3, z1: 3, label: 'floor' },
+      { y: 0.74, x0: -0.7, x1: 0.7, z0: -1.1, z1: -0.2, label: 'table' },
+    ]);
+    const poly = findTableOutline(f, ref, origin, new Vector3(0, 0.75, -0.5))!;
+    expect(poly).toHaveLength(4);
+    expect(poly.every((p) => Math.abs(p.y - 0.74) < 1e-6)).toBe(true);
+    expect(Math.max(...poly.map((p) => p.x))).toBeCloseTo(0.7);
+  });
+
+  it('is null when the board is not over any detected table', () => {
+    const f = frameWith([{ y: 0.74, x0: -0.7, x1: 0.7, z0: -1.1, z1: -0.2 }]);
+    expect(findTableOutline(f, ref, origin, new Vector3(2, 0.75, -0.5))).toBeNull();
+    expect(findTableOutline(f, ref, origin, new Vector3(0, 0.3, -0.5))).toBeNull();
   });
 });

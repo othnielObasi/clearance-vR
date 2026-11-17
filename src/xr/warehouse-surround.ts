@@ -12,7 +12,16 @@
  * itself if frames get slow. `?nowarehouse` turns it off.
  */
 import {
+  AdditiveBlending,
   BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  CapsuleGeometry,
+  CylinderGeometry,
+  DoubleSide,
+  Points,
+  PointsMaterial,
+  SphereGeometry,
   CanvasTexture,
   Color,
   Group,
@@ -29,7 +38,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import { makeRack, mergeStatic, RACK_TALL, trackRackMaterial } from './look';
+import { canvasTex, makeRack, mergeStatic, RACK_TALL, trackRackMaterial } from './look';
 import { COLORS, TILE } from './models';
 
 const PITCH = TILE; // racks sit on the board's grid pitch
@@ -40,10 +49,19 @@ const ROW_GAP = 0.1; // centre to centre between rack rows (aisle about 6 cm, bo
 /** Clear strip along the board's near side (board units): dispenser, gold pad, corner buttons. */
 const FRONT_CLEAR = 0.15;
 
-/** Shared fade uniforms: board centre (world) and fade start/end distance (world metres). */
+/** Most corners kept from a detected desk outline. */
+const DESK_MAX = 16;
+
+/**
+ * Shared fade uniforms: board centre (world), fade start/end distance (world metres), and the
+ * real desk's outline (world XZ) when plane detection found it. Outside the desk nothing is drawn,
+ * so the warehouse never hangs in the air past the table's edge.
+ */
 const FADE = {
   center: { value: new Vector3() },
   range: { value: new Vector2(0.5, 1) },
+  desk: { value: Array.from({ length: DESK_MAX }, () => new Vector2()) },
+  deskN: { value: 0 },
 };
 
 const BAYER_GLSL = `
@@ -55,6 +73,8 @@ function withFade<T extends Material>(mat: T): T {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uDecoCenter = FADE.center;
     shader.uniforms.uDecoFade = FADE.range;
+    shader.uniforms.uDecoDesk = FADE.desk;
+    shader.uniforms.uDecoDeskN = FADE.deskN;
     shader.vertexShader =
       'varying vec3 vDecoWorld;\n' +
       shader.vertexShader.replace(
@@ -67,17 +87,33 @@ function withFade<T extends Material>(mat: T): T {
         vDecoWorld = (modelMatrix * decoWorld).xyz;`,
       );
     shader.fragmentShader =
-      'uniform vec3 uDecoCenter;\nuniform vec2 uDecoFade;\nvarying vec3 vDecoWorld;\n' +
+      `uniform vec3 uDecoCenter;\nuniform vec2 uDecoFade;\nuniform vec2 uDecoDesk[${DESK_MAX}];\nuniform int uDecoDeskN;\nvarying vec3 vDecoWorld;\n` +
       BAYER_GLSL +
       shader.fragmentShader.replace(
         'void main() {',
         `void main() {
         float decoA = 1.0 - smoothstep(uDecoFade.x, uDecoFade.y, length(vDecoWorld.xz - uDecoCenter.xz));
+        if (uDecoDeskN >= 3) {
+          // Inside the real desk (even-odd rule), dissolving over the last 3 cm to its edge.
+          vec2 decoQ = vDecoWorld.xz;
+          bool decoIn = false;
+          float decoEdge = 1e9;
+          for (int i = 0; i < ${DESK_MAX}; i++) {
+            if (i >= uDecoDeskN) break;
+            vec2 a = uDecoDesk[i];
+            vec2 b = uDecoDesk[i == 0 ? uDecoDeskN - 1 : i - 1];
+            if ((a.y > decoQ.y) != (b.y > decoQ.y) && decoQ.x < (b.x - a.x) * (decoQ.y - a.y) / (b.y - a.y) + a.x) decoIn = !decoIn;
+            vec2 ab = b - a;
+            float t = clamp(dot(decoQ - a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+            decoEdge = min(decoEdge, length(decoQ - a - ab * t));
+          }
+          decoA *= decoIn ? smoothstep(0.0, 0.03, decoEdge) : 0.0;
+        }
         ivec2 decoP = ivec2(mod(floor(gl_FragCoord.xy), 4.0));
         if (decoA < (decoBayer[decoP.x + decoP.y * 4] + 0.5) / 16.0) discard;`,
       );
   };
-  mat.customProgramCacheKey = () => 'airg-deco-fade';
+  mat.customProgramCacheKey = () => 'clearance-deco-fade';
   return mat;
 }
 
@@ -132,7 +168,16 @@ export class WarehouseSurround {
   private disabled = false;
   private readonly guard: boolean;
   private readonly fadeStart: number;
-  private readonly fadeEnd: number;
+  /** Fade end with the real desk known (clipped to it) and without (kept close, so it can't overhang). */
+  private readonly fadeEndDesk: number;
+  private readonly fadeEndFree: number;
+  private hasDesk = false;
+  private workers: Bot[] = [];
+  private workerBodies!: InstancedMesh;
+  private workerHeads!: InstancedMesh;
+  private workerHats!: InstancedMesh;
+  private dust!: Points;
+  private dustBase!: Float32Array;
   private on = new Color(0xb8ffff);
   private off = new Color(0x1d3a3c);
 
@@ -142,8 +187,9 @@ export class WarehouseSurround {
     const halfW = width / 2;
     const halfD = depth / 2;
     this.fadeStart = Math.hypot(halfW, halfD) + 0.06;
-    this.fadeEnd = this.fadeStart + 0.38;
-    const reach = this.fadeEnd + 0.02;
+    this.fadeEndDesk = this.fadeStart + 0.42;
+    this.fadeEndFree = this.fadeStart + 0.16;
+    const reach = this.fadeEndDesk + 0.02;
 
     // Floor: from the board's near edge back, out to where the fade ends.
     const tex = concreteTexture();
@@ -164,14 +210,21 @@ export class WarehouseSurround {
     const racks = new Group();
     let seed = 1;
     const backRows = [0, 1, 2].map((i) => -(halfD + 0.14 + i * ROW_GAP));
-    for (const z of backRows) {
+    backRows.forEach((z, row) => {
       for (let x = -reach + PITCH / 2; x <= reach - PITCH / 2; x += PITCH) {
         if (Math.hypot(x, z) > reach) continue;
         const r = makeRack(seed++, true);
         r.position.set(x, FLOOR_Y, z);
         racks.add(r);
+        // High-bay racking behind the first row: a second rack stacked on top, so the back of the
+        // warehouse rises well above the board and the space reads as a tall hall.
+        if (row > 0) {
+          const top = makeRack(seed++, true);
+          top.position.set(x, FLOOR_Y + RACK_TALL, z);
+          racks.add(top);
+        }
       }
-    }
+    });
     const sideRows = [0, 1, 2].map((j) => halfW + 0.08 + j * ROW_GAP);
     for (const side of [-1, 1])
       for (const x of sideRows) {
@@ -245,16 +298,20 @@ export class WarehouseSurround {
     this.conveyor = { from: -reach * 0.85, to: reach * 0.85, z: -(halfD + 0.035), y: RACK_TALL * 0.82 };
     const beltLen = this.conveyor.to - this.conveyor.from;
     const belt = new Group();
-    const beltTop = new Mesh(new BoxGeometry(beltLen, 0.004, 0.026), new MeshStandardMaterial({ color: 0x23272d, roughness: 0.6 }));
+    // One material per colour, so the merged belt is three draw calls, not one per leg.
+    const beltMat = new MeshStandardMaterial({ color: 0x23272d, roughness: 0.6 });
+    const railMat = new MeshStandardMaterial({ color: 0xf07b1a, roughness: 0.5, metalness: 0.3 });
+    const legMat = new MeshStandardMaterial({ color: 0x5b6470, roughness: 0.5, metalness: 0.4 });
+    const beltTop = new Mesh(new BoxGeometry(beltLen, 0.004, 0.026), beltMat);
     beltTop.position.set(0, this.conveyor.y, this.conveyor.z);
     belt.add(beltTop);
     for (const z of [-1, 1]) {
-      const rail = new Mesh(new BoxGeometry(beltLen, 0.006, 0.003), new MeshStandardMaterial({ color: 0xf07b1a, roughness: 0.5, metalness: 0.3 }));
+      const rail = new Mesh(new BoxGeometry(beltLen, 0.006, 0.003), railMat);
       rail.position.set(0, this.conveyor.y + 0.003, this.conveyor.z + z * 0.0145);
       belt.add(rail);
     }
     for (let x = this.conveyor.from; x <= this.conveyor.to; x += 0.12) {
-      const leg = new Mesh(new BoxGeometry(0.004, this.conveyor.y, 0.004), new MeshStandardMaterial({ color: 0x5b6470, roughness: 0.5, metalness: 0.4 }));
+      const leg = new Mesh(new BoxGeometry(0.004, this.conveyor.y, 0.004), legMat);
       leg.position.set(x, this.conveyor.y / 2 + FLOOR_Y, this.conveyor.z);
       belt.add(leg);
     }
@@ -266,6 +323,10 @@ export class WarehouseSurround {
     this.root.add(beltMerged);
     this.parcels = new InstancedMesh(new BoxGeometry(0.016, 0.012, 0.016), withFade(new MeshStandardMaterial({ color: 0xc99257, roughness: 0.8 })), this.parcelCount);
 
+    this.buildRoof(reach, halfW, halfD, backAisles, sideAisles);
+    this.buildWorkers(reach, halfD, backAisles, sideAisles);
+    this.buildDust(reach, halfW, halfD);
+
     for (const im of [this.bodies, this.lights, this.loads, this.parcels]) {
       im.frustumCulled = false;
       this.root.add(im);
@@ -274,6 +335,165 @@ export class WarehouseSurround {
       o.castShadow = false;
       o.receiveShadow = false;
     });
+  }
+
+  /**
+   * Roof structure over the back and sides (never over the play area): steel columns and trusses,
+   * lamps hanging over the aisles, and warm pools of light on the floor under them.
+   * Four draw calls in all: steel, lamp shades, bulbs, light pools.
+   */
+  private buildRoof(reach: number, halfW: number, halfD: number, backAisles: number[], sideAisles: number[]) {
+    const H = RACK_TALL * 2.45; // truss height, above the high-bay racking
+    const steelMat = withFade(new MeshStandardMaterial({ color: 0x4a5059, roughness: 0.55, metalness: 0.6 }));
+    const shadeMat = withFade(new MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.5, metalness: 0.5, side: DoubleSide }));
+    const bulbMat = withFade(new MeshBasicMaterial({ color: 0xffe2a0 }));
+    const steel = new Group();
+    const beam = (len: number, axis: 'x' | 'z', x: number, z: number, y = H) => {
+      const m = new Mesh(new BoxGeometry(axis === 'x' ? len : 0.004, 0.005, axis === 'z' ? len : 0.004), steelMat);
+      m.position.set(x, y, z);
+      steel.add(m);
+    };
+    const backEdge = -(halfD + 0.06);
+    const sideEdge = halfW + 0.05;
+    // Trusses across the back, each a top and bottom chord with a web of diagonals.
+    for (let z = backEdge - 0.05; z > -reach; z -= 0.12) {
+      beam(reach * 2, 'x', 0, z);
+      beam(reach * 2, 'x', 0, z, H - 0.018);
+      for (let x = -reach + 0.03; x < reach; x += 0.06) {
+        const d = new Mesh(new BoxGeometry(0.0025, 0.026, 0.0025), steelMat);
+        d.position.set(x, H - 0.009, z);
+        d.rotation.z = (Math.round(x / 0.06) % 2 ? 1 : -1) * 0.75;
+        steel.add(d);
+      }
+    }
+    // Purlins along each side, joining the trusses, out over the side racking.
+    // They stop level with the middle of the board: nothing overhead reaches toward the player.
+    for (const side of [-1, 1]) for (const x of [sideEdge + 0.04, sideEdge + 0.16]) if (x < reach) beam(reach, 'z', side * x, -reach / 2);
+    // Columns at the corners of the roof, down to the floor.
+    for (const side of [-1, 1])
+      for (const z of [backEdge - 0.05, -reach + 0.04]) {
+        const c = new Mesh(new BoxGeometry(0.006, H, 0.006), steelMat);
+        c.position.set(side * (sideEdge + 0.16), H / 2, z);
+        steel.add(c);
+      }
+    this.root.add(mergeStatic(steel));
+
+    // Lamps over the aisles: a cable, a shade and a glowing bulb; a pool of light on the floor.
+    const shades = new Group();
+    const bulbs = new Group();
+    const pools = new Group();
+    const poolTex = canvasTex(64, 64, (g) => {
+      const r = g.createRadialGradient(32, 32, 2, 32, 32, 31);
+      r.addColorStop(0, 'rgba(255,214,150,0.55)');
+      r.addColorStop(0.6, 'rgba(255,200,130,0.18)');
+      r.addColorStop(1, 'rgba(255,190,120,0)');
+      g.fillStyle = r;
+      g.fillRect(0, 0, 64, 64);
+    });
+    const poolMat = withFade(new MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: AdditiveBlending }));
+    const lampAt: [number, number][] = [];
+    for (const z of backAisles) for (let x = -reach * 0.7; x <= reach * 0.7; x += 0.16) lampAt.push([x, z]);
+    for (const side of [-1, 1]) for (const x of sideAisles) for (let z = -0.02; z > -reach * 0.75; z -= 0.16) lampAt.push([side * x, z]);
+    const hang = H - 0.045;
+    for (const [x, z] of lampAt) {
+      if (Math.hypot(x, z) > reach) continue;
+      const cable = new Mesh(new BoxGeometry(0.0012, H - hang, 0.0012), shadeMat);
+      cable.position.set(x, (H + hang) / 2, z);
+      const shade = new Mesh(new CylinderGeometry(0.004, 0.011, 0.008, 12, 1, true), shadeMat);
+      shade.position.set(x, hang, z);
+      shades.add(cable, shade);
+      const bulb = new Mesh(new SphereGeometry(0.0042, 10, 6), bulbMat);
+      bulb.position.set(x, hang - 0.003, z);
+      bulbs.add(bulb);
+      const pool = new Mesh(new PlaneGeometry(0.11, 0.11), poolMat);
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(x, FLOOR_Y + 0.0008, z);
+      pools.add(pool);
+    }
+    for (const g of [shades, bulbs, pools]) this.root.add(mergeStatic(g));
+  }
+
+  /** People in hi-vis walking the aisles: they give the warehouse its scale. Three draw calls. */
+  private buildWorkers(reach: number, halfD: number, backAisles: number[], sideAisles: number[]) {
+    const back = backAisles[backAisles.length - 1] ?? -(halfD + 0.2);
+    this.workers = [
+      { axis: 'x', line: backAisles[0] ?? back, from: -reach * 0.55, to: -reach * 0.15, speed: 0.016, phase: 0.4, carrying: false },
+      { axis: 'x', line: back, from: reach * 0.1, to: reach * 0.6, speed: 0.014, phase: 2.1, carrying: false },
+      ...[-1, 1].map((side, i): Bot => {
+        const x = side * (sideAisles[sideAisles.length - 1] ?? 0.4);
+        return { axis: 'z', line: x, from: -0.05, to: -reach * 0.6, speed: 0.015, phase: 1 + i * 2.7, carrying: false };
+      }),
+      { axis: 'z', line: -(sideAisles[0] ?? 0.32), from: -0.1, to: -reach * 0.45, speed: 0.012, phase: 3.3, carrying: false },
+    ];
+    const n = this.workers.length;
+    this.workerBodies = new InstancedMesh(new CapsuleGeometry(0.0055, 0.014, 4, 8), withFade(new MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6 })), n);
+    this.workerHeads = new InstancedMesh(new SphereGeometry(0.005, 10, 8), withFade(new MeshStandardMaterial({ color: 0xd9a988, roughness: 0.7 })), n);
+    this.workerHats = new InstancedMesh(new SphereGeometry(0.0058, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), withFade(new MeshStandardMaterial({ color: COLORS.hat, roughness: 0.4 })), n);
+    for (const im of [this.workerBodies, this.workerHeads, this.workerHats]) {
+      im.frustumCulled = false;
+      this.root.add(im);
+    }
+  }
+
+  /** Dust drifting in the lamp light over the back and sides. One draw call. */
+  private buildDust(reach: number, halfW: number, halfD: number) {
+    const count = 110;
+    this.dustBase = new Float32Array(count * 3);
+    let r = 7;
+    const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < count; i++) {
+      let x = 0;
+      let z = 0;
+      do {
+        x = (rand() * 2 - 1) * reach;
+        z = -rand() * reach;
+      } while (Math.abs(x) < halfW + 0.03 && z > -(halfD + 0.04));
+      this.dustBase.set([x, 0.02 + rand() * RACK_TALL * 2.2, z], i * 3);
+    }
+    const geo = new BufferGeometry();
+    geo.setAttribute('position', new BufferAttribute(this.dustBase.slice(), 3));
+    this.dust = new Points(
+      geo,
+      withFade(new PointsMaterial({ color: 0xfff1d0, size: 0.0035, sizeAttenuation: true, transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending })),
+    );
+    this.dust.frustumCulled = false;
+    this.root.add(this.dust);
+  }
+
+  /**
+   * The real desk's outline (world space) from plane detection, or null when unknown. With it the
+   * warehouse fills the desk and stops at its edge; without it, it stays close around the board.
+   */
+  setDesk(outline: { x: number; z: number }[] | null) {
+    const pts = outline && outline.length >= 3 ? outline : null;
+    if (!pts) {
+      FADE.deskN.value = 0;
+      this.hasDesk = false;
+      return;
+    }
+    // Keep at most DESK_MAX corners, evenly spread (a desk outline is usually 4 to 8).
+    const step = Math.max(1, Math.ceil(pts.length / DESK_MAX));
+    const kept = pts.filter((_, i) => i % step === 0).slice(0, DESK_MAX);
+    kept.forEach((p, i) => FADE.desk.value[i]!.set(p.x, p.z));
+    FADE.deskN.value = kept.length;
+    this.hasDesk = true;
+  }
+
+  /** World position of the conveyor's middle, for its sound. */
+  conveyorWorld(out: Vector3) {
+    return this.root.localToWorld(out.set((this.conveyor.from + this.conveyor.to) / 2, this.conveyor.y, this.conveyor.z));
+  }
+
+  /** World position of one background robot, for a distant reversing beep. */
+  botWorld(i: number, out: Vector3) {
+    const b = this.bots[i % Math.max(1, this.bots.length)];
+    if (!b) return null;
+    this.bodies.getMatrixAt(i % this.bots.length, this.m);
+    return this.root.localToWorld(out.setFromMatrixPosition(this.m));
+  }
+
+  get visible() {
+    return this.root.visible && !this.disabled;
   }
 
   /** Animate, keep the fade centred on the board, and hide on a slow device. */
@@ -291,7 +511,7 @@ export class WarehouseSurround {
     }
     board.getWorldPosition(FADE.center.value);
     const s = board.getWorldScale(this.p).x;
-    FADE.range.value.set(this.fadeStart * s, this.fadeEnd * s);
+    FADE.range.value.set(this.fadeStart * s, (this.hasDesk ? this.fadeEndDesk : this.fadeEndFree) * s);
 
     this.bots.forEach((b, i) => {
       // Ping-pong along the aisle, easing at each end like a robot stopping to pick.
@@ -317,7 +537,32 @@ export class WarehouseSurround {
       this.m.makeTranslation(x, this.conveyor.y + 0.008, this.conveyor.z);
       this.parcels.setMatrixAt(i, this.m);
     }
-    for (const im of [this.bodies, this.lights, this.loads, this.parcels]) im.instanceMatrix.needsUpdate = true;
+    // Workers stroll, pausing at each end of their aisle.
+    this.workers.forEach((w, i) => {
+      const span = Math.abs(w.to - w.from);
+      const angle = (time * Math.PI * w.speed) / span + w.phase;
+      const u = 0.5 - 0.5 * Math.cos(angle);
+      const along = w.from + (w.to - w.from) * u;
+      const x = w.axis === 'x' ? along : w.line;
+      const z = w.axis === 'x' ? w.line : along;
+      const bob = Math.abs(Math.sin(time * 6 + i)) * 0.0008 * Math.abs(Math.sin(angle));
+      this.m.makeTranslation(x, FLOOR_Y + 0.0125 + bob, z);
+      this.workerBodies.setMatrixAt(i, this.m);
+      this.m.makeTranslation(x, FLOOR_Y + 0.0285 + bob, z);
+      this.workerHeads.setMatrixAt(i, this.m);
+      this.m.makeTranslation(x, FLOOR_Y + 0.0295 + bob, z);
+      this.workerHats.setMatrixAt(i, this.m);
+    });
+    // Dust drifts slowly and wraps.
+    const pos = this.dust.geometry.attributes.position as BufferAttribute;
+    const a = pos.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      a[i] = this.dustBase[i]! + Math.sin(time * 0.21 + i) * 0.012;
+      a[i + 1] = this.dustBase[i + 1]! + Math.sin(time * 0.13 + i * 1.7) * 0.01;
+      a[i + 2] = this.dustBase[i + 2]! + Math.cos(time * 0.17 + i * 0.6) * 0.012;
+    }
+    pos.needsUpdate = true;
+    for (const im of [this.bodies, this.lights, this.loads, this.parcels, this.workerBodies, this.workerHeads, this.workerHats]) im.instanceMatrix.needsUpdate = true;
     if (this.lights.instanceColor) this.lights.instanceColor.needsUpdate = true;
   }
 }

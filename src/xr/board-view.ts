@@ -111,7 +111,7 @@ export class BoardView {
   /** Real-world size multiplier for the whole board (local units are TILE-based). */
   readonly worldScale = BOARD_SCALE;
   /** Decorative warehouse around the board (null with ?nowarehouse). */
-  private surround: WarehouseSurround | null;
+  readonly surround: WarehouseSurround | null;
 
   constructor(private game: Game) {
     const { w, h } = game.level.grid;

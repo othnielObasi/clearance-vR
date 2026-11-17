@@ -35,7 +35,7 @@ import { DebugPanel } from '../xr/debug-panel';
 import { makePreviewRoom, setRackPeek } from '../xr/look';
 import { DeskAnchor } from '../xr/anchor';
 import { type BoardFrame, ObjectScanner } from '../xr/desk-scan';
-import { findTable } from '../xr/table';
+import { findTable, findTableOutline } from '../xr/table';
 import type { Cell, LevelDef } from '../core/types';
 import { LEVELS } from '../levels';
 import { Sfx } from '../xr/audio';
@@ -116,6 +116,11 @@ export class ClearanceApp {
   private buttonsAlways = false;
   private nearMisses = 0;
   private reportSaveIn = 5;
+  /** Keep looking for the real desk's outline (plane data can arrive late) until this time. */
+  private outlineUntil = 0;
+  private outlineCheckIn = 0;
+  /** Next distant reversing beep from the background warehouse. */
+  private beepIn = 6;
   /** Real objects on the board become walls (depth sensing). Filming turns it off. */
   scanObjects = true;
   /** When each hand last lay flat on the board: lifting it off is not a flick. */
@@ -995,6 +1000,7 @@ export class ClearanceApp {
     this.coach.update(dt);
     if ((this.level.grid.tall ?? []).length && this.game.time > 6) this.coach.tip('lean');
     this.view.update(dt, this.clock);
+    this.updateDeskOutline(dt);
     this.updateTokens(dt);
     this.updateButtons();
     this.updateBubbles();
@@ -1011,6 +1017,16 @@ export class ClearanceApp {
     const fwd = new Vector3(0, 0, -1).applyQuaternion(head.getWorldQuaternion(new Quaternion()));
     const up = new Vector3(0, 1, 0).applyQuaternion(head.getWorldQuaternion(new Quaternion()));
     this.sfx.setListener(pos, fwd, up);
+    // The warehouse around the board is heard where it is: the conveyor rattles behind the board,
+    // and now and then a robot in a back aisle beeps as it reverses.
+    const surround = this.view.surround;
+    const live = !!this.world.session && !paused && !!surround?.visible;
+    this.sfx.setWarehouse(live && surround ? surround.conveyorWorld(new Vector3()) : null);
+    if (live && surround && (this.beepIn -= 1 / 60) <= 0) {
+      this.beepIn = 7 + Math.random() * 9;
+      const at = surround.botWorld(Math.floor(Math.random() * 64), new Vector3());
+      if (at) this.sfx.reverseBeep(at);
+    }
     const g = this.game;
     let i = 0.2;
     if (g.status === 'playing') {
@@ -1126,8 +1142,33 @@ export class ClearanceApp {
     this.scanner.reset();
   }
 
+  /**
+   * The outline of the real desk under the board, from plane detection, so the warehouse around
+   * the board fills the desk and stops at its edge. Checked for a while after placing the board.
+   */
+  private updateDeskOutline(dt: number) {
+    const surround = this.view.surround;
+    if (!surround || this.clock > this.outlineUntil) return;
+    if ((this.outlineCheckIn -= dt) > 0) return;
+    this.outlineCheckIn = 0.5;
+    const frame = this.world.xrFrame;
+    const ref = this.world.xrReferenceSpace;
+    if (!frame || !ref) return;
+    const centre = this.view.content.getWorldPosition(new Vector3());
+    centre.y -= 0.012; // the board's base sits just above the real surface
+    const outline = findTableOutline(frame, ref, this.world.player.matrixWorld as Matrix4, centre);
+    if (outline) {
+      surround.setDesk(outline);
+      this.outlineUntil = 0;
+    }
+  }
+
   /** Stop looking for the desk; anchor the board wherever it ended up. */
   private endDeskSearch(anchor: boolean) {
+    // Then find the desk's outline; until then the warehouse stays close around the board.
+    this.view.surround?.setDesk(null);
+    this.outlineUntil = this.clock + 20;
+    this.outlineCheckIn = 0;
     this.deskSearchUntil = 0;
     this.hitSource?.cancel();
     this.hitSource = undefined;

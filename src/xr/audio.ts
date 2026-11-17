@@ -273,6 +273,61 @@ export class Sfx {
     src.stop(t0 + dur + 0.02);
   }
 
+  private beltPanner?: PannerNode;
+  private beltGain?: GainNode;
+
+  /**
+   * The background conveyor's rattle, placed where the conveyor is (null: silent). A looping
+   * band of noise with a slow flutter, through its own spatial panner that follows the board.
+   */
+  setWarehouse(at: Pos | null) {
+    const ctx = this.ctx;
+    if (!ctx || !this.noise || !this.sfxBus) return;
+    if (!this.beltPanner) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 900;
+      bp.Q.value = 0.8;
+      const flutter = ctx.createGain();
+      flutter.gain.value = 0.6;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 7.5;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.35;
+      lfo.connect(depth).connect(flutter.gain);
+      this.beltGain = ctx.createGain();
+      this.beltGain.gain.value = 0;
+      const p = ctx.createPanner();
+      p.panningModel = 'HRTF';
+      p.distanceModel = 'inverse';
+      p.refDistance = 0.4;
+      p.rolloffFactor = 1;
+      src.connect(bp).connect(flutter).connect(this.beltGain).connect(p).connect(this.sfxBus);
+      src.start();
+      lfo.start();
+      this.beltPanner = p;
+    }
+    const t = ctx.currentTime;
+    this.beltGain!.gain.setTargetAtTime(at && !this.muted ? 0.045 : 0, t, 0.4);
+    if (at) {
+      const p = this.beltPanner;
+      if (p.positionX) {
+        p.positionX.setTargetAtTime(at.x, t, 0.05);
+        p.positionY.setTargetAtTime(at.y, t, 0.05);
+        p.positionZ.setTargetAtTime(at.z, t, 0.05);
+      } else p.setPosition(at.x, at.y, at.z);
+    }
+  }
+
+  /** A forklift-style reversing beep, three short pips, from somewhere in the warehouse. */
+  reverseBeep(at: Pos) {
+    const out = this.panner(at);
+    for (let i = 0; i < 3; i++) this.tone(1320, 0.11, 'square', i * 0.42, 0.018, undefined, out);
+  }
+
   /** Low warehouse hum under everything. */
   private startAmbience() {
     const ctx = this.ctx!;

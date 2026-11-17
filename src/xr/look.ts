@@ -42,7 +42,7 @@ const sharedMat = (color: number, rough = 0.5, metalness = 0.08) => {
   return m;
 };
 
-const canvasTex = (w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): CanvasTexture => {
+export const canvasTex = (w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): CanvasTexture => {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;

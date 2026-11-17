@@ -68,3 +68,27 @@ function pullInside(p: Vector3, poly: Vector3[], inset: number) {
   return best;
 }
 
+
+/**
+ * The outline (world space) of the real table under a point, from plane detection: the
+ * horizontal plane whose polygon contains the point, within a few centimetres of its height.
+ * Used to keep the decorative warehouse on the desk instead of floating past its edge.
+ */
+export function findTableOutline(frame: XRFrame, ref: XRReferenceSpace, origin: Matrix4, at: Vector3): Vector3[] | null {
+  const planes = (frame as PlaneFrame).detectedPlanes;
+  if (!planes?.size) return null;
+  const m = new Matrix4();
+  let best: { poly: Vector3[]; dy: number } | null = null;
+  for (const plane of planes) {
+    if (plane.orientation !== 'horizontal') continue;
+    const pose = frame.getPose(plane.planeSpace, ref);
+    if (!pose) continue;
+    m.fromArray(pose.transform.matrix).premultiply(origin);
+    const poly = plane.polygon.map((q) => new Vector3(q.x, q.y, q.z).applyMatrix4(m));
+    if (poly.length < 3) continue;
+    const dy = Math.abs(poly[0]!.y - at.y);
+    if (dy > 0.06 || !insidePolygon(at, poly)) continue;
+    if (!best || dy < best.dy) best = { poly, dy };
+  }
+  return best?.poly ?? null;
+}
