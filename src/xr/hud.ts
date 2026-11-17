@@ -23,6 +23,8 @@ export interface HudState {
 
 const W = 1024;
 const H = 360;
+/** Canvas pixels per layout pixel: crisp text on a headset display. */
+const RES = 2;
 
 /** A floating status card above the far edge of the board, drawn to a canvas. */
 export class Hud {
@@ -33,8 +35,8 @@ export class Hud {
   private last = '';
 
   constructor(widthM = 0.34) {
-    this.canvas.width = W;
-    this.canvas.height = H;
+    this.canvas.width = W * RES;
+    this.canvas.height = H * RES;
     this.g = this.canvas.getContext('2d')!;
     this.tex = new CanvasTexture(this.canvas);
     this.tex.colorSpace = SRGBColorSpace;
@@ -49,7 +51,9 @@ export class Hud {
     if (sig === this.last) return;
     this.last = sig;
     const g = this.g;
-    g.clearRect(0, 0, W, H);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    g.setTransform(RES, 0, 0, RES, 0, 0);
     round(g, 8, 8, W - 16, H - 16, 36);
     g.fillStyle = 'rgba(20, 24, 30, 0.86)';
     g.fill();
@@ -137,7 +141,13 @@ export class Hud {
         g.fillStyle = '#c9d1d9';
         g.fillText(s.note, 44, two ? 338 : 326, W - 88);
       }
-    } else g.fillText(s.message, 44, 262, W - 88);
+    } else {
+      // The coach line is the instruction the player reads most: large, on up to two lines.
+      g.font = '600 44px system-ui, sans-serif';
+      const lines = wrap(g, s.message, W - 88, 2);
+      if (lines.length > 1) g.font = '600 40px system-ui, sans-serif';
+      lines.forEach((line, i) => g.fillText(line, 44, (lines.length > 1 ? 252 : 270) + i * 48, W - 88));
+    }
     this.tex.needsUpdate = true;
   }
 }

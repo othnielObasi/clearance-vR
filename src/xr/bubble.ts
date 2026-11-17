@@ -3,6 +3,8 @@ import type { Mood } from '../core/game';
 
 const W = 512;
 const H = 128;
+/** Canvas pixels per layout pixel. */
+const RES = 2;
 
 /** Mood colours the bubble, so a robot's attitude reads at a glance. */
 const MOOD_FILL: Record<Mood, string> = {
@@ -29,14 +31,16 @@ export class Bubble {
   /** `accent` is the robot's colour, used for the outline so the bubble reads as that robot's. */
   constructor(accent = 0x1b1f24) {
     this.accent = `#${accent.toString(16).padStart(6, '0')}`;
-    this.canvas.width = W;
-    this.canvas.height = H;
+    // Drawn at twice the layout size: crisp text on a headset display.
+    this.canvas.width = W * RES;
+    this.canvas.height = H * RES;
     this.g = this.canvas.getContext('2d')!;
     this.tex = new CanvasTexture(this.canvas);
     this.tex.colorSpace = SRGBColorSpace;
     this.mat = new SpriteMaterial({ map: this.tex, transparent: true, depthWrite: false });
     this.sprite = new Sprite(this.mat);
-    this.sprite.scale.set(0.08, 0.02, 1);
+    // Sized for reading from a seated position about half a metre away (letters about 8 mm tall).
+    this.sprite.scale.set(0.104, 0.026, 1);
     this.sprite.renderOrder = 5;
     this.sprite.visible = false;
   }
@@ -61,7 +65,9 @@ export class Bubble {
 
   private draw(text: string, fill: string) {
     const g = this.g;
-    g.clearRect(0, 0, W, H);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    g.setTransform(RES, 0, 0, RES, 0, 0);
     g.font = '600 52px system-ui, sans-serif';
     const tw = Math.min(W - 40, g.measureText(text).width + 56);
     const x = (W - tw) / 2;

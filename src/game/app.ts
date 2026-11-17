@@ -1308,7 +1308,7 @@ export class ClearanceApp {
       const [x, y] = this.game.robotRenderPos(r);
       // Stagger heights so neighbouring robots' bubbles don't overlap.
       const idx = this.game.robots.indexOf(r);
-      this.view.cellToLocal(x, y, b.sprite.position).setY(0.08 + (idx % 3) * 0.016);
+      this.view.cellToLocal(x, y, b.sprite.position).setY(0.085 + (idx % 3) * 0.021);
       b.update(this.clock, playing && r.state === 'proposed' ? proposalLine(r) : null, r.mood);
     }
   }
