@@ -777,8 +777,9 @@ export class ClearanceApp {
     const root = this.view.root;
     root.rotation.set(0, this.boardYaw, 0);
     // Handle is at the near edge centre; board centre lies behind it.
-    this.tmp.set(0, 0, -(this.view.depth / 2 + 0.03)).applyAxisAngle(new Vector3(0, 1, 0), this.boardYaw);
-    root.position.set(hp.x + this.tmp.x, hp.y - 0.008, hp.z + this.tmp.z);
+    this.tmp.set(0, 0, -((this.view.depth / 2) * this.view.worldScale + 0.03)).applyAxisAngle(new Vector3(0, 1, 0), this.boardYaw);
+    // Keep the base's underside where it sat at design size (it is 1.22 cm deep in board units).
+    root.position.set(hp.x + this.tmp.x, hp.y - 0.008 + 0.0122 * (this.view.worldScale - 1), hp.z + this.tmp.z);
   }
 
   /** On entering XR, put the board in front of the seated player at desk height. */
@@ -1119,7 +1120,7 @@ export class ClearanceApp {
   /** Board centre on a real surface point; handle at the near edge, toward the player. */
   private placeBoardOn(p: Vector3, head: Vector3) {
     const toPlayer = new Vector3(head.x - p.x, 0, head.z - p.z).normalize();
-    const off = this.view.depth / 2 + 0.03;
+    const off = (this.view.depth / 2) * this.view.worldScale + 0.03;
     this.handle.object3D!.position.set(p.x + toPlayer.x * off, p.y + 0.012, p.z + toPlayer.z * off);
     this.boardYaw = Math.atan2(toPlayer.x, toPlayer.z);
     this.scanner.reset();

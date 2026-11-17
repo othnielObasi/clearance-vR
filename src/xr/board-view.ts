@@ -34,6 +34,7 @@ import {
   mergeStatic,
 } from './look';
 import { COLORS, makeZoneTile, TILE } from './models';
+import { getWarehouseSurround, type WarehouseSurround } from './warehouse-surround';
 import { makeBlob as makeBlobLike } from './look';
 
 const MAX_GHOST = 48;
@@ -75,6 +76,14 @@ interface RobotView {
  * Renders a Game onto a tabletop board. Board-local axes: x right, y up,
  * z toward the seated player. Grid row 0 is the far edge.
  */
+/**
+ * The board is drawn 1.5x its design size: 72 x 48 cm for a 12 x 8 grid, covering most of a desk
+ * instead of a tray. Everything on it (robots, paths, permits, buttons, HUD) scales together, and
+ * gestures are measured in board cells, so gameplay is unchanged. The far edge stays within a
+ * seated reach of about 75 cm.
+ */
+export const BOARD_SCALE = 1.5;
+
 export class BoardView {
   readonly root = new Group();
   readonly content = new Group();
@@ -99,11 +108,19 @@ export class BoardView {
   readonly width: number;
   readonly depth: number;
 
+  /** Real-world size multiplier for the whole board (local units are TILE-based). */
+  readonly worldScale = BOARD_SCALE;
+  /** Decorative warehouse around the board (null with ?nowarehouse). */
+  private surround: WarehouseSurround | null;
+
   constructor(private game: Game) {
     const { w, h } = game.level.grid;
     this.width = w * TILE;
     this.depth = h * TILE;
+    this.root.scale.setScalar(BOARD_SCALE);
     this.root.add(this.content);
+    this.surround = getWarehouseSurround(this.width, this.depth);
+    if (this.surround) this.root.add(this.surround.root);
     this.effects = new Effects(this.content);
     this.handCells = new InstancedMesh(
       new PlaneGeometry(TILE * 0.9, TILE * 0.9),
@@ -334,6 +351,7 @@ export class BoardView {
 
   update(dt: number, time: number) {
     const game = this.game;
+    this.surround?.update(dt, time, this.root);
     this.syncDynamic();
     this.effects.update(dt);
     if (this.unfold < 1) {

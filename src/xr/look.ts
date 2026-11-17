@@ -471,6 +471,10 @@ export function setRackPeek(on: boolean) {
   }
 }
 const rackMats = new Set<MeshStandardMaterial>();
+/** Include another rack material in see-through racking (used by the warehouse around the board). */
+export function trackRackMaterial(m: MeshStandardMaterial) {
+  rackMats.add(m);
+}
 const rackMat = (color: number, rough = 0.5, metal = 0.3) => {
   const m = sharedMat(color, rough, metal);
   rackMats.add(m);
