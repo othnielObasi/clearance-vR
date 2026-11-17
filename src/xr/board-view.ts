@@ -225,7 +225,10 @@ export class BoardView {
 
   private buildStatic() {
     const g = this.game.level.grid;
-    const base = new Mesh(new BoxGeometry(this.width + 0.024, 0.012, this.depth + 0.024), new MeshStandardMaterial({ color: COLORS.boardEdge, roughness: 0.45, metalness: 0.2 }));
+    // Inside the warehouse the base matches its floor, so the board reads as a zone painted on the
+    // floor (the hazard tape marks its edge) rather than a platform standing on it.
+    const baseColor = this.surround ? 0xd9d4c8 : COLORS.boardEdge;
+    const base = new Mesh(new BoxGeometry(this.width + 0.024, 0.012, this.depth + 0.024), new MeshStandardMaterial({ color: baseColor, roughness: this.surround ? 0.9 : 0.45, metalness: this.surround ? 0 : 0.2 }));
     base.position.y = -0.0062;
     const top = new Mesh(new PlaneGeometry(this.width, this.depth), new MeshStandardMaterial({
         map: warehouseFloor({

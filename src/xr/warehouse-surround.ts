@@ -33,6 +33,9 @@ import { makeRack, mergeStatic, RACK_TALL, trackRackMaterial } from './look';
 import { COLORS, TILE } from './models';
 
 const PITCH = TILE; // racks sit on the board's grid pitch
+/** Warehouse floor height (board units): flush with the board surface, so the board reads as a
+ * marked zone on one continuous floor rather than a platform standing on it. */
+const FLOOR_Y = -0.0004;
 const ROW_GAP = 0.1; // centre to centre between rack rows (aisle about 6 cm, board units)
 /** Clear strip along the board's near side (board units): dispenser, gold pad, corner buttons. */
 const FRONT_CLEAR = 0.15;
@@ -82,17 +85,17 @@ function concreteTexture(): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#8c9097';
+  g.fillStyle = '#d9d4c8';
   g.fillRect(0, 0, 256, 256);
   let r = 99991;
   const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647);
   for (let i = 0; i < 1400; i++) {
-    const v = 120 + Math.floor(rand() * 40);
-    g.fillStyle = `rgba(${v},${v + 3},${v + 8},0.35)`;
+    const v = 175 + Math.floor(rand() * 40);
+    g.fillStyle = `rgba(${v},${v - 2},${v - 8},0.35)`;
     g.fillRect(rand() * 256, rand() * 256, 2, 2);
   }
   // Slab joints.
-  g.strokeStyle = 'rgba(60,64,70,0.45)';
+  g.strokeStyle = 'rgba(120,112,98,0.35)';
   g.lineWidth = 2;
   g.strokeRect(1, 1, 254, 254);
   const t = new CanvasTexture(c);
@@ -107,6 +110,7 @@ interface Bot {
   line: number;
   from: number;
   to: number;
+  /** Average speed along the aisle, board units per second (board robots: about 0.09). */
   speed: number;
   phase: number;
   carrying: boolean;
@@ -149,7 +153,7 @@ export class WarehouseSurround {
       withFade(new MeshStandardMaterial({ map: tex, roughness: 0.92, metalness: 0 })),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, -0.0118, halfD - (reach + halfD) / 2);
+    floor.position.set(0, FLOOR_Y, halfD - (reach + halfD) / 2);
     this.root.add(floor);
 
     // Aisle markings on the floor: yellow lines along every aisle.
@@ -164,7 +168,7 @@ export class WarehouseSurround {
       for (let x = -reach + PITCH / 2; x <= reach - PITCH / 2; x += PITCH) {
         if (Math.hypot(x, z) > reach) continue;
         const r = makeRack(seed++, true);
-        r.position.set(x, -0.0118, z);
+        r.position.set(x, FLOOR_Y, z);
         racks.add(r);
       }
     }
@@ -176,7 +180,7 @@ export class WarehouseSurround {
         for (let z = halfD - FRONT_CLEAR - PITCH / 2; z >= -(halfD + 0.05); z -= PITCH) {
           if (Math.hypot(x, z) > reach) continue;
           const r = makeRack(seed++, seed % 3 !== 0);
-          r.position.set(side * x, -0.0118, z);
+          r.position.set(side * x, FLOOR_Y, z);
           r.rotation.y = Math.PI / 2;
           racks.add(r);
         }
@@ -203,18 +207,18 @@ export class WarehouseSurround {
     let k = 0;
     for (const z of backAisles)
       for (let n = 0; n < 2; n++)
-        this.bots.push({ axis: 'x', line: z, from: -reach * 0.8, to: reach * 0.8, speed: 0.22 + 0.07 * n, phase: n * 2.4 + k++, carrying: n === 0 });
+        this.bots.push({ axis: 'x', line: z, from: -reach * 0.8, to: reach * 0.8, speed: 0.07 + 0.015 * n, phase: n * 2.4 + k++, carrying: n === 0 });
     for (const side of [-1, 1])
       for (const x of sideAisles)
-        this.bots.push({ axis: 'z', line: side * x, from: halfD - FRONT_CLEAR, to: -(halfD + 0.05), speed: 0.3, phase: k++ * 1.7, carrying: k % 2 === 0 });
+        this.bots.push({ axis: 'z', line: side * x, from: halfD - FRONT_CLEAR, to: -(halfD + 0.05), speed: 0.08, phase: k++ * 1.7, carrying: k % 2 === 0 });
     // A lane just behind the dock, the busiest one.
     const dockLane = -(halfD + 0.07);
-    this.bots.push({ axis: 'x', line: dockLane, from: -reach * 0.7, to: reach * 0.7, speed: 0.35, phase: 0.6, carrying: true });
+    this.bots.push({ axis: 'x', line: dockLane, from: -reach * 0.7, to: reach * 0.7, speed: 0.09, phase: 0.6, carrying: true });
 
     for (const z of backAisles) {
       const l = new Mesh(new PlaneGeometry(reach * 1.6, 0.0016), lineMat);
       l.rotation.x = -Math.PI / 2;
-      l.position.set(0, -0.0112, z);
+      l.position.set(0, FLOOR_Y + 0.0004, z);
       lines.add(l);
     }
     for (const side of [-1, 1])
@@ -222,7 +226,7 @@ export class WarehouseSurround {
         const len = halfD * 2 + 0.05 - FRONT_CLEAR;
         const l = new Mesh(new PlaneGeometry(0.0016, len), lineMat);
         l.rotation.x = -Math.PI / 2;
-        l.position.set(side * x, -0.0112, halfD - FRONT_CLEAR - len / 2);
+        l.position.set(side * x, FLOOR_Y + 0.0004, halfD - FRONT_CLEAR - len / 2);
         lines.add(l);
       }
     this.root.add(mergeStatic(lines));
@@ -251,7 +255,7 @@ export class WarehouseSurround {
     }
     for (let x = this.conveyor.from; x <= this.conveyor.to; x += 0.12) {
       const leg = new Mesh(new BoxGeometry(0.004, this.conveyor.y, 0.004), new MeshStandardMaterial({ color: 0x5b6470, roughness: 0.5, metalness: 0.4 }));
-      leg.position.set(x, this.conveyor.y / 2 - 0.0118, this.conveyor.z);
+      leg.position.set(x, this.conveyor.y / 2 + FLOOR_Y, this.conveyor.z);
       belt.add(leg);
     }
     const beltMerged = mergeStatic(belt);
@@ -292,22 +296,24 @@ export class WarehouseSurround {
     this.bots.forEach((b, i) => {
       // Ping-pong along the aisle, easing at each end like a robot stopping to pick.
       const span = Math.abs(b.to - b.from);
-      const u = 0.5 - 0.5 * Math.cos(((time * b.speed) / span) * Math.PI * 2 + b.phase);
+      // A cosine ping-pong whose average speed is b.speed: angle advances at pi * speed / span.
+      const angle = (time * Math.PI * b.speed) / span + b.phase;
+      const u = 0.5 - 0.5 * Math.cos(angle);
       const along = b.from + (b.to - b.from) * u;
       const x = b.axis === 'x' ? along : b.line;
       const z = b.axis === 'x' ? b.line : along;
-      const heading = Math.sin(((time * b.speed) / span) * Math.PI * 2 + b.phase) >= 0 ? 0 : Math.PI;
-      this.m.makeRotationY(b.axis === 'x' ? heading : heading + Math.PI / 2).setPosition(x, -0.0118 + 0.009, z);
+      const heading = Math.sin(angle) >= 0 ? 0 : Math.PI;
+      this.m.makeRotationY(b.axis === 'x' ? heading : heading + Math.PI / 2).setPosition(x, FLOOR_Y + 0.009, z);
       this.bodies.setMatrixAt(i, this.m);
-      this.m.setPosition(x, -0.0118 + 0.0215, z);
+      this.m.setPosition(x, FLOOR_Y + 0.0215, z);
       this.lights.setMatrixAt(i, this.m);
       this.lights.setColorAt(i, Math.sin(time * 5 + i) > 0.2 ? this.on : this.off);
-      this.m.setPosition(x, b.carrying ? -0.0118 + 0.027 : -1000, z);
+      this.m.setPosition(x, b.carrying ? FLOOR_Y + 0.027 : -1000, z);
       this.loads.setMatrixAt(i, this.m);
     });
     const len = this.conveyor.to - this.conveyor.from;
     for (let i = 0; i < this.parcelCount; i++) {
-      const x = this.conveyor.from + ((time * 0.05 + (i / this.parcelCount) * len) % len);
+      const x = this.conveyor.from + ((time * 0.03 + (i / this.parcelCount) * len) % len);
       this.m.makeTranslation(x, this.conveyor.y + 0.008, this.conveyor.z);
       this.parcels.setMatrixAt(i, this.m);
     }
