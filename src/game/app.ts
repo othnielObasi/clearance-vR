@@ -21,6 +21,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   Quaternion,
   RingGeometry,
   SphereGeometry,
@@ -42,6 +43,7 @@ import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
 import { HAND_JOINTS, HandModel, detachToolkitHands } from '../xr/hand-model';
+import { FingerPress } from '../xr/finger-press';
 import { GhostHand, type GhostKey } from '../xr/ghost-hand';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
@@ -128,6 +130,8 @@ export class ClearanceApp {
   private demoRestAt = 0;
   /** Drawn hands, for the emulator only (on a Quest, passthrough shows the real ones). */
   private drawnHands?: Record<'left' | 'right', HandModel>;
+  private fingerPress = new FingerPress();
+  private pressCenters = new Map<number, Vector3>();
   /** When a carried permit was last let go: robot buttons stay hidden just after, see below. */
   private releasedAt = -10;
   private nearPalm = { left: 0, right: 0 };
@@ -954,6 +958,7 @@ export class ClearanceApp {
     }
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
     this.updateDrawnHands();
+    this.updateFingerPresses(dt);
     this.updateTutorial(dt, paused);
     if (this.world.session) {
       this.gestureLog.frame(dt);
@@ -1646,6 +1651,33 @@ export class ClearanceApp {
     }
   }
 
+  /**
+   * Presses from the player's own tracked fingertip (see `FingerPress`): on a Quest the toolkit's
+   * poke pointer missed these small buttons. Uses last frame's button visibility and positions.
+   */
+  private updateFingerPresses(dt: number) {
+    if (!this.world.session) return;
+    const tips = (['left', 'right'] as const)
+      .filter((s) => this.tracker.hands[s].tracked)
+      .map((s) => ({ side: s, tip: this.tracker.hands[s].indexTip }));
+    const all = [...this.buttons.values(), this.palmBtn];
+    const targets = all.map((b) => {
+      let center = this.pressCenters.get(b.entity.index);
+      if (!center) this.pressCenters.set(b.entity.index, (center = new Vector3()));
+      b.mesh.getWorldPosition(center);
+      if (!b.mesh.geometry.boundingSphere) b.mesh.geometry.computeBoundingSphere();
+      const radius = (b.mesh.geometry.boundingSphere?.radius ?? 0.011) * b.mesh.matrixWorld.getMaxScaleOnAxis();
+      return { id: b.entity.index, center, radius, visible: treeVisible(b.mesh) };
+    });
+    for (const id of this.fingerPress.update(dt, tips, targets)) {
+      const b = id === this.palmBtn.entity.index ? this.palmBtn : this.buttons.get(id);
+      if (!b) continue;
+      const before = b.pressedAt;
+      this.onPress(b.entity);
+      if (b.pressedAt !== before) this.gestureLog.fire('poke');
+    }
+  }
+
   /** See `detachToolkitHands`: the toolkit would otherwise draw stiff hands over the real ones. */
   private hideToolkitHands() {
     detachToolkitHands(this.world.input?.visualAdapters?.hand);
@@ -1876,4 +1908,10 @@ function saveLearned(s: Set<string>) {
   } catch {
     // storage unavailable: demos simply show again next time
   }
+}
+
+/** Drawn only if it and every ancestor are visible (what the player can actually see and touch). */
+function treeVisible(o: Object3D | null): boolean {
+  for (; o; o = o.parent) if (!o.visible) return false;
+  return true;
 }

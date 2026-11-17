@@ -6,12 +6,12 @@
  */
 import { GESTURE } from '../xr/gestures';
 
-export type GestureKind = 'pinch' | 'palm' | 'flick' | 'wall' | 'menu' | 'all';
+export type GestureKind = 'pinch' | 'palm' | 'flick' | 'wall' | 'menu' | 'all' | 'poke';
 
 const KEY = 'clearance.gesturelog.v1';
 
 export class GestureLog {
-  fired: Record<GestureKind, number> = { pinch: 0, palm: 0, flick: 0, wall: 0, menu: 0, all: 0 };
+  fired: Record<GestureKind, number> = { pinch: 0, palm: 0, flick: 0, wall: 0, menu: 0, all: 0, poke: 0 };
   near: Record<'pinch' | 'palm' | 'flick', number> = { pinch: 0, palm: 0, flick: 0 };
   /** Closest thumb–index gap seen while a hand hovered on a permit without grabbing it (m). */
   pinchGaps: number[] = [];

@@ -60,6 +60,14 @@ const results = [];
         return `${f(t.left)} | ${f(t.right)} | game ${a.game.status} paused ${a.userPaused}`;
       },
       clear: () => (window.events = []),
+      button: (id, which) => {
+        const b = a.panels.get(id)?.[which];
+        return b ? { at: v3(b.mesh.getWorldPosition(new V())), visible: b.mesh.visible } : null;
+      },
+      pokes: () => a.gestureLog.fired.poke,
+      toolkitTouch: (on) => {
+        for (const side of ['left', 'right']) a.world.input.xr.multiPointers[side].toggleSubPointer('touch', on);
+      },
     };
   });
 
@@ -203,6 +211,58 @@ const results = [];
       check('a fast reach over a plan does not reject it', !wrongly, await page.evaluate(() => window.events.join(',')));
       await park('right');
     } else check('a fast reach over a plan does not reject it', false, 'no proposal to reach over');
+  }
+
+  // 3c. Touch the ✗ button above a waiting robot with a fingertip: the plan is rejected.
+  {
+    const live = await waitFor(() => window.clearance.game.robots.some((r) => r.state === 'proposed'), 25);
+    if (live) {
+      await call('clear');
+      const id = await page.evaluate(() => window.clearance.game.robots.find((r) => r.state === 'proposed').id);
+      const robot = await call('robot', id);
+      const pokesBefore = await call('pokes');
+      await remote('set_hand_pose', { device: 'hand-right', poseId: 'point' });
+      // Hover near the robot so its buttons appear, without touching them.
+      await remote('set_transform', { device: 'hand-right', anchor: 'index-tip', position: add(robot, 0, 0.06, 0.09), orientation: { fingers: 'forward', palm: 'down' } });
+      await page.evaluate((rid) => (window.pokeTarget = rid), id);
+      const shown = await waitFor(() => window.T.button(window.pokeTarget, 'reject')?.visible, 3);
+      await gameSeconds(0.5);
+      const btn = await call('button', id, 'reject');
+      if (shown && btn) {
+        await remote('animate_to', { device: 'hand-right', anchor: 'index-tip', position: add(btn.at, 0, 0, 0.004), duration: 0.25 });
+        const rejected = await waitFor(() => window.T.had('rejected'), 2);
+        const pokes = (await call('pokes')) - pokesBefore;
+        check('touching the ✗ button rejects the plan', rejected, `${await page.evaluate(() => window.events.join(','))}; fingertip presses ${pokes}`);
+      } else check('touching the ✗ button rejects the plan', false, 'buttons never appeared');
+      await park('right');
+    } else check('touching the ✗ button rejects the plan', false, 'no proposal to reject');
+  }
+
+  // 3d. The same touch with the toolkit's poke pointer switched off, as on a Quest where it missed
+  // these buttons: the game's own fingertip detection must press it.
+  {
+    const live = await waitFor(() => window.clearance.game.robots.some((r) => r.state === 'proposed'), 25);
+    if (live) {
+      await call('clear');
+      await call('toolkitTouch', false);
+      const id = await page.evaluate(() => window.clearance.game.robots.find((r) => r.state === 'proposed').id);
+      const robot = await call('robot', id);
+      const pokesBefore = await call('pokes');
+      await remote('set_hand_pose', { device: 'hand-right', poseId: 'point' });
+      await remote('set_transform', { device: 'hand-right', anchor: 'index-tip', position: add(robot, 0, 0.06, 0.09), orientation: { fingers: 'forward', palm: 'down' } });
+      await page.evaluate((rid) => (window.pokeTarget = rid), id);
+      const shown = await waitFor(() => window.T.button(window.pokeTarget, 'reject')?.visible, 3);
+      await gameSeconds(0.5);
+      const btn = await call('button', id, 'reject');
+      if (shown && btn) {
+        await remote('animate_to', { device: 'hand-right', anchor: 'index-tip', position: add(btn.at, 0, 0, 0.004), duration: 0.25 });
+        const rejected = await waitFor(() => window.T.had('rejected'), 2);
+        const pokes = (await call('pokes')) - pokesBefore;
+        check('touching ✗ works without the toolkit poke pointer', rejected && pokes >= 1, `${await page.evaluate(() => window.events.join(','))}; fingertip presses ${pokes}`);
+      } else check('touching ✗ works without the toolkit poke pointer', false, `buttons never appeared; ${await call('hands')}; robot ${id} ${await call('state', id)}; button ${JSON.stringify(await call('button', id, 'reject'))}; tip ${JSON.stringify(await page.evaluate(() => window.clearance.tracker.hands.right.indexTip))}; robotAt ${JSON.stringify(robot)}`);
+      await call('toolkitTouch', true);
+      await park('right');
+    } else check('touching ✗ works without the toolkit poke pointer', false, 'no proposal to reject');
   }
 
   // 4. A flat hand resting on the board becomes a wall.
