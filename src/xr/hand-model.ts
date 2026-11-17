@@ -37,6 +37,21 @@ const BONES: (readonly [number, number])[] = [
   ...chain(['index-finger-metacarpal', 'middle-finger-metacarpal', 'ring-finger-metacarpal', 'pinky-finger-metacarpal']),
 ];
 
+/** The parts of the toolkit's hand visual adapters this game touches. */
+export type ToolkitHandAdapters = Partial<Record<'left' | 'right', { visual?: { model?: Object3D } } | undefined>>;
+
+/**
+ * Keep the toolkit's own hand models out of the scene, so the player sees their real hands through
+ * passthrough. `toggleVisual(false)` alone is not enough: every frame the toolkit sets
+ * `visual.model.visible = isPrimary && tracked`, showing the hands again, and with visuals disabled
+ * it also stops posing the fingers, so a headset showed stiff, generic hands over the real ones.
+ * A model with no parent is never drawn, whatever its visible flag says. The visual loads
+ * asynchronously and is recreated on reconnect, so call this every frame.
+ */
+export function detachToolkitHands(adapters: ToolkitHandAdapters | undefined) {
+  for (const side of ['left', 'right'] as const) adapters?.[side]?.visual?.model?.removeFromParent();
+}
+
 /** Joint radii (m) when the source gives none: thicker at the palm, thinner at the tips. */
 function defaultRadius(i: number) {
   const n = HAND_JOINTS[i]!;

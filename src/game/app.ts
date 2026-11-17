@@ -41,7 +41,7 @@ import { Sfx } from '../xr/audio';
 import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
-import { HAND_JOINTS, HandModel } from '../xr/hand-model';
+import { HAND_JOINTS, HandModel, detachToolkitHands } from '../xr/hand-model';
 import { GhostHand, type GhostKey } from '../xr/ghost-hand';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
@@ -1637,12 +1637,18 @@ export class ClearanceApp {
 
   private updateDrawnHands() {
     if (!this.drawnHands) return;
+    this.hideToolkitHands();
     for (const side of ['left', 'right'] as const) {
       const all = this.tracker.allJoints[side];
       const model = this.drawnHands[side];
       model.visible = all.ok && !!this.world.session;
       if (model.visible) model.setJoints(all.points, all.radii);
     }
+  }
+
+  /** See `detachToolkitHands`: the toolkit would otherwise draw stiff hands over the real ones. */
+  private hideToolkitHands() {
+    detachToolkitHands(this.world.input?.visualAdapters?.hand);
   }
 
   /** A hand hovering on a permit, fingers almost together, for a while: the pinch did not register. */
