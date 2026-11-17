@@ -27,7 +27,7 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import { Game, type GameEvent } from '../core/game';
+import { Game, type GameEvent, type Robot } from '../core/game';
 import { CREW, type CrewMemory, type CrewName, crewNameFor, emptyMemory } from '../core/crew';
 import { generateDaily } from '../core/daily';
 import { OvertimeDirector, overtimeLevel } from '../core/overtime';
@@ -1360,8 +1360,20 @@ export class ClearanceApp {
       // Stagger heights so neighbouring robots' bubbles don't overlap.
       const idx = this.game.robots.indexOf(r);
       this.view.cellToLocal(x, y, b.sprite.position).setY(0.085 + (idx % 3) * 0.021);
-      b.update(this.clock, playing && r.state === 'proposed' ? proposalLine(r) : null, r.mood);
+      b.update(this.clock, playing && r.state === 'proposed' ? this.askLine(r) : null, r.mood);
     }
+  }
+
+  /**
+   * What a waiting robot says. A first-timer doesn't yet know the robot is waiting on them, so
+   * until they have handed out a permit (and whenever a robot has waited a while) the bubble
+   * alternates its plan with a plain request for the player's OK.
+   */
+  private askLine(r: Robot): string {
+    const line = proposalLine(r);
+    const waited = this.clock - (this.askingSince.get(r.id) ?? this.clock);
+    const nudge = (!this.learned.has('pinch') && waited > 1.5) || waited > 6;
+    return nudge && Math.floor(waited / 1.6) % 2 === 1 ? 'Needs your OK!' : line;
   }
 
   private onGameEvent(e: GameEvent) {
@@ -1669,7 +1681,9 @@ export class ClearanceApp {
     if (!keys) return;
     this.demoCount[name] = (this.demoCount[name] ?? 0) + 1;
     this.demoTarget = target;
-    ghost.play(name, keys, 1);
+    // Played slower than the keys are written: on a headset the full-speed version read as a
+    // blur rather than a demonstration.
+    ghost.play(name, keys.map((k) => ({ ...k, move: k.move * 1.7, hold: k.hold * 1.3 })), 1);
   }
 
   /** Key poses for each demonstration, built on the board where it is now. */
