@@ -1,5 +1,5 @@
 import type { CrewMemory, CrewName } from '../core/crew';
-import type { Calibration, GameEvent, Mood, Robot } from '../core/game';
+import type { Calibration, GameEvent, LossReason, Mood, Robot } from '../core/game';
 
 /** What a waiting robot says about its own plan. Two to four words: readable at a glance. */
 export function proposalLine(r: Pick<Robot, 'trap' | 'mood' | 'secondsSaved'>): string {
@@ -61,6 +61,25 @@ export const MOOD_LABEL: Record<Mood, string> = {
   bold: 'Bold',
   hesitant: 'Hesitant',
 };
+
+/** Headline for a lost shift: say plainly what ended it. */
+export function lossHeadline(reason: LossReason | undefined): string {
+  return reason === 'permits' ? 'Out of permits' : reason === 'time' ? "Time's up" : reason === 'safety' ? 'Safety stop' : 'Shift over';
+}
+
+/** One practical tip for the next try, matched to what ended the shift. */
+export function lossTip(reason: LossReason | undefined): string {
+  switch (reason) {
+    case 'permits':
+      return 'Stopping a robot spends its permit: stop only real danger.';
+    case 'time':
+      return 'Clear honest plans sooner: they only need your OK.';
+    case 'safety':
+      return 'Too many incidents: turn down plans through spills and people.';
+    default:
+      return '';
+  }
+}
 
 /** One-line verdict for the end-of-shift calibration card. */
 export function verdictLine(c: Calibration): string {

@@ -59,3 +59,43 @@ describe('fingertip presses', () => {
     expect(p.update(DT, [tip(0.012, 'left'), tip(0.012, 'right')], [button()])).toEqual([7]);
   });
 });
+
+describe('fingertip presses in a crowded cluster', () => {
+  const at = (id: number, x: number, reach?: number) => ({ id, center: new Vector3(x, 0, 0), radius: 0.011, visible: true, reach });
+  const settle = (p: FingerPress, targets: ReturnType<typeof at>[]) => {
+    for (let t = 0; t < FINGER_PRESS.settle + 0.1; t += DT) p.update(DT, [tip(0.5)], targets);
+  };
+
+  it('presses only the nearest of two buttons a fingertip is close to', () => {
+    // ✓ at 0, ✗ 2.6 cm along: a fingertip between them, nearer ✓, is within reach of both.
+    const targets = [at(1, 0), at(2, 0.026)];
+    const p = new FingerPress();
+    settle(p, targets);
+    expect(p.update(DT, [tip(0.012)], targets)).toEqual([1]);
+  });
+
+  it('does not press a neighbour while sliding off the button it pressed', () => {
+    const targets = [at(1, 0), at(2, 0.026)];
+    const p = new FingerPress();
+    settle(p, targets);
+    expect(p.update(DT, [tip(0.005)], targets)).toEqual([1]);
+    let presses = 0;
+    for (let x = 0.005; x <= 0.026; x += 0.001) presses += p.update(DT, [tip(x)], targets).length;
+    expect(presses).toBe(0);
+  });
+
+  it('a careful button needs a closer touch than a normal one', () => {
+    const p = new FingerPress();
+    const stop = [at(3, 0, FINGER_PRESS.carefulReach)];
+    settle(p, stop);
+    expect(p.update(DT, [tip(0.011 + FINGER_PRESS.reach - 0.001)], stop)).toEqual([]);
+    expect(p.update(DT, [tip(0.011 + FINGER_PRESS.carefulReach - 0.001)], stop)).toEqual([3]);
+  });
+
+  it('two hands can press two different buttons in the same frame', () => {
+    const targets = [at(1, 0), at(2, 0.1)];
+    const p = new FingerPress();
+    settle(p, targets);
+    expect(p.update(DT, [tip(0.012, 'left'), tip(0.112, 'right')], targets).sort()).toEqual([1, 2]);
+  });
+});

@@ -19,6 +19,8 @@ export interface HudState {
   note?: string;
   /** The final campaign level was just won. */
   campaignDone?: boolean;
+  /** Headline for a lost shift (what ended it); defaults to "Shift over". */
+  lossTitle?: string;
 }
 
 const W = 1024;
@@ -66,7 +68,7 @@ export class Hud {
     if (s.result) {
       g.font = '700 64px system-ui, sans-serif';
       g.fillStyle = s.result === 'won' ? '#3fb950' : '#ff6b6b';
-      g.fillText(s.campaignDone ? 'Campaign complete' : s.result === 'won' ? 'Shift complete' : 'Shift over', 44, 150);
+      g.fillText(s.campaignDone ? 'Campaign complete' : s.result === 'won' ? 'Shift complete' : (s.lossTitle ?? 'Shift over'), 44, 150);
       if (s.best !== undefined) {
         // Overtime: the score is the point.
         g.font = '600 46px system-ui, sans-serif';

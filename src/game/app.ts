@@ -45,13 +45,13 @@ import { BoardView } from '../xr/board-view';
 import { applyAssist, GESTURE, HandTracker, HoldTimer } from '../xr/gestures';
 import { GestureLog } from './gesture-log';
 import { HAND_JOINTS, HandModel, detachToolkitHands } from '../xr/hand-model';
-import { FingerPress } from '../xr/finger-press';
+import { FINGER_PRESS, FingerPress } from '../xr/finger-press';
 import { GhostHand, type GhostKey } from '../xr/ghost-hand';
 import { Hud } from '../xr/hud';
 import { COLORS, makeButton, makeHalo, makeLabelButton, makeToken, TILE } from '../xr/models';
 import { Bubble } from '../xr/bubble';
 import { Coach } from './coach';
-import { fieldNote, greetingLine, proposalLine, reactionLine, verdictLine } from './voice';
+import { fieldNote, greetingLine, lossHeadline, lossTip, proposalLine, reactionLine, verdictLine } from './voice';
 import { CoopLink } from '../net/coop';
 import { applySnapshot, type CoopMsg, snapshot } from '../net/snapshot';
 import { validateLevel } from '../levels/validate';
@@ -72,6 +72,8 @@ interface Button {
   mesh: Mesh;
   action: ButtonAction;
   pressedAt: number;
+  /** A mistaken press costs the player (stopping a robot): the fingertip must come closer. */
+  careful?: boolean;
 }
 
 interface Token {
@@ -485,7 +487,7 @@ export class ClearanceApp {
     this.panels.set(id, {
       grant: this.addButton('✓', COLORS.go, () => this.grantByButton(id)),
       reject: this.addButton('✗', 0xff8a3d, () => this.rejectRobot(id)),
-      stop: this.addButton('■', COLORS.stop, () => this.stopRobot(id)),
+      stop: Object.assign(this.addButton('■', COLORS.stop, () => this.stopRobot(id)), { careful: true }),
       gold: this.addButton('★', COLORS.gold, () => this.delegateByButton(id)),
     });
     const halo = makeHalo();
@@ -1808,7 +1810,7 @@ export class ClearanceApp {
       b.mesh.getWorldPosition(center);
       if (!b.mesh.geometry.boundingSphere) b.mesh.geometry.computeBoundingSphere();
       const radius = (b.mesh.geometry.boundingSphere?.radius ?? 0.011) * b.mesh.matrixWorld.getMaxScaleOnAxis();
-      return { id: b.entity.index, center, radius, visible: treeVisible(b.mesh) };
+      return { id: b.entity.index, center, radius, visible: treeVisible(b.mesh), reach: b.careful ? FINGER_PRESS.carefulReach : undefined };
     });
     for (const id of this.fingerPress.update(dt, tips, targets)) {
       const b = id === this.palmBtn.entity.index ? this.palmBtn : this.buttons.get(id);
@@ -2021,11 +2023,19 @@ export class ClearanceApp {
       permits: g.permitsRemaining + g.permits.filter((p) => p.state === 'held' && !p.gold).length,
       gold: level.permits.gold ? g.goldAvailable + g.permits.filter((p) => p.gold && p.state === 'held').length : undefined,
       timeLeft: g.timeLeft,
-      message: this.coopWaiting ? 'Connected. Waiting for the host to start a shift…' : g.status !== 'playing' ? (this.debrief ? `Supervisor: ${this.debrief}` : verdictLine(g.calibration())) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
+      message: this.coopWaiting ? 'Connected. Waiting for the host to start a shift…' : g.status !== 'playing' ? (this.debrief ? `Supervisor: ${this.debrief}` : this.endLine()) : this.userPaused ? 'Paused. ▶ resume · ↻ restart' : this.coach.message,
       calibration: g.status === 'playing' ? undefined : g.calibration(),
       stars: g.status === 'won' ? g.score().stars : 0,
       result: g.status === 'playing' ? undefined : g.status,
+      lossTitle: g.status === 'lost' ? lossHeadline(g.lossReason) : undefined,
     });
+  }
+
+  /** End card line: on a loss, what to do differently first, then the trust verdict. */
+  private endLine() {
+    const g = this.game;
+    const tip = g.status === 'lost' ? lossTip(g.lossReason) : '';
+    return tip ? `${tip} ${verdictLine(g.calibration())}` : verdictLine(g.calibration());
   }
 }
 

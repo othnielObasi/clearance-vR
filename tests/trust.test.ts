@@ -89,3 +89,15 @@ describe('calibration report', () => {
     expect(c.caught).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('lost-shift headline and tip', () => {
+  it('names what ended the shift and gives a matching tip', async () => {
+    const { lossHeadline, lossTip } = await import('../src/game/voice');
+    expect(lossHeadline('permits')).toBe('Out of permits');
+    expect(lossHeadline('time')).toBe("Time's up");
+    expect(lossHeadline('safety')).toBe('Safety stop');
+    expect(lossHeadline(undefined)).toBe('Shift over');
+    expect(lossTip('permits')).toMatch(/permit/);
+    expect(lossTip(undefined)).toBe('');
+  });
+});
