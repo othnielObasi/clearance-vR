@@ -413,7 +413,11 @@ export class WarehouseSurround {
     for (const g of [shades, bulbs, pools]) this.root.add(mergeStatic(g));
   }
 
-  /** People in hi-vis walking the aisles: they give the warehouse its scale. Three draw calls. */
+  /**
+   * Staff walking the aisles: they give the warehouse its scale. Deliberately unlike the workers on
+   * the board (the people the player protects): three quarters their size, in dull grey coveralls
+   * and a grey cap, never the board's blue and yellow hard hat. Three draw calls.
+   */
   private buildWorkers(reach: number, halfD: number, backAisles: number[], sideAisles: number[]) {
     const back = backAisles[backAisles.length - 1] ?? -(halfD + 0.2);
     this.workers = [
@@ -426,9 +430,9 @@ export class WarehouseSurround {
       { axis: 'z', line: -(sideAisles[0] ?? 0.32), from: -0.1, to: -reach * 0.45, speed: 0.012, phase: 3.3, carrying: false },
     ];
     const n = this.workers.length;
-    this.workerBodies = new InstancedMesh(new CapsuleGeometry(0.0055, 0.014, 4, 8), withFade(new MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6 })), n);
-    this.workerHeads = new InstancedMesh(new SphereGeometry(0.005, 10, 8), withFade(new MeshStandardMaterial({ color: 0xd9a988, roughness: 0.7 })), n);
-    this.workerHats = new InstancedMesh(new SphereGeometry(0.0058, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), withFade(new MeshStandardMaterial({ color: COLORS.hat, roughness: 0.4 })), n);
+    this.workerBodies = new InstancedMesh(new CapsuleGeometry(0.0041, 0.0105, 4, 8), withFade(new MeshStandardMaterial({ color: 0x6f7774, roughness: 0.8 })), n);
+    this.workerHeads = new InstancedMesh(new SphereGeometry(0.00375, 10, 8), withFade(new MeshStandardMaterial({ color: 0xb08f78, roughness: 0.8 })), n);
+    this.workerHats = new InstancedMesh(new SphereGeometry(0.0042, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), withFade(new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.8 })), n);
     for (const im of [this.workerBodies, this.workerHeads, this.workerHats]) {
       im.frustumCulled = false;
       this.root.add(im);
@@ -546,11 +550,11 @@ export class WarehouseSurround {
       const x = w.axis === 'x' ? along : w.line;
       const z = w.axis === 'x' ? w.line : along;
       const bob = Math.abs(Math.sin(time * 6 + i)) * 0.0008 * Math.abs(Math.sin(angle));
-      this.m.makeTranslation(x, FLOOR_Y + 0.0125 + bob, z);
+      this.m.makeTranslation(x, FLOOR_Y + 0.0094 + bob, z);
       this.workerBodies.setMatrixAt(i, this.m);
-      this.m.makeTranslation(x, FLOOR_Y + 0.0285 + bob, z);
+      this.m.makeTranslation(x, FLOOR_Y + 0.0214 + bob, z);
       this.workerHeads.setMatrixAt(i, this.m);
-      this.m.makeTranslation(x, FLOOR_Y + 0.0295 + bob, z);
+      this.m.makeTranslation(x, FLOOR_Y + 0.0221 + bob, z);
       this.workerHats.setMatrixAt(i, this.m);
     });
     // Dust drifts slowly and wraps.

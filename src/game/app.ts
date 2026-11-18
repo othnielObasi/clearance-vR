@@ -1670,10 +1670,16 @@ export class ClearanceApp {
     const moving = this.game.robots.filter((r) => r.state === 'executing');
     let name: string | null = null;
     let target: string | null = null;
-    // A shortcut on offer is the moment to show the flick; otherwise teach the permit first.
+    // The permit is the first lesson: while an honest robot waits for a player who has never
+    // handed one out, show that. Then a shortcut on offer is the moment to show the flick.
     const trap = proposed.find((r) => r.trap);
-    if (trap && want('flick')) [name, target] = ['flick', trap.id];
-    else if (proposed[0] && want('pinch') && this.ready && this.clock - (this.askingSince.get(proposed[0].id) ?? this.clock) > 1) [name, target] = ['pinch', proposed[0].id];
+    const honest = proposed.find((r) => !r.trap);
+    const firstPermit = !!honest && want('pinch') && !this.learned.has('pinch');
+    if (trap && want('flick') && !firstPermit) [name, target] = ['flick', trap.id];
+    else if (proposed[0] && want('pinch') && this.ready && this.clock - (this.askingSince.get((honest ?? proposed[0]).id) ?? this.clock) > 1) {
+      const r = firstPermit ? honest! : proposed[0];
+      [name, target] = ['pinch', r.id];
+    }
     else if (moving[0] && this.game.workers.length && want('palm')) [name, target] = ['palm', moving[0].id];
     else if (this.game.level.id === 'L06' && (proposed[0] ?? moving[0]) && want('wall')) [name, target] = ['wall', (proposed[0] ?? moving[0])!.id];
     if (!name || !target) return;
