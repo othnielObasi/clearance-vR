@@ -24,5 +24,6 @@ describe('Daily Shift', () => {
       expect(g.status, level.name).toBe('won');
       expect(level.robots.some((r) => r.traits?.shortcutBias)).toBe(true);
     }
-  });
+    // Simulates 30 full shifts: about 4.5 s alone, so the default 5 s limit fails under load.
+  }, 20_000);
 });

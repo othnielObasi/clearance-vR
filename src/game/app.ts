@@ -146,6 +146,8 @@ export class ClearanceApp {
   /** Drawn hands, for the emulator only (on a Quest, passthrough shows the real ones). */
   private drawnHands?: Record<'left' | 'right', HandModel>;
   private fingerPress = new FingerPress();
+  private handsMissingFor = 0;
+  private handHintAt = -Infinity;
   private pressCenters = new Map<number, Vector3>();
   /** When a carried permit was last let go: robot buttons stay hidden just after, see below. */
   private releasedAt = -10;
@@ -987,6 +989,7 @@ export class ClearanceApp {
     this.tracker.update(frame, ref, this.world.player.matrixWorld as Matrix4, dt);
     this.updateDrawnHands();
     this.updateFingerPresses(dt);
+    this.updateHandHint(dt, paused);
     this.updateTutorial(dt, paused);
     if (this.world.session) {
       this.gestureLog.frame(dt);
@@ -1819,6 +1822,24 @@ export class ClearanceApp {
       this.onPress(b.entity);
       if (b.pressedAt !== before) this.gestureLog.fire('poke');
     }
+  }
+
+  /**
+   * Real hands always show through passthrough, even when the headset is not tracking them, so a
+   * player cannot tell why gestures stopped working. After a couple of seconds with no tracked hand,
+   * say why: usually the controllers are awake (picked up or bumped), which turns hand tracking off.
+   */
+  private updateHandHint(dt: number, paused: boolean) {
+    const session = this.world.session;
+    if (!session || paused || this.game.status !== 'playing' || this.tracker.hands.left.tracked || this.tracker.hands.right.tracked) {
+      this.handsMissingFor = 0;
+      return;
+    }
+    this.handsMissingFor += dt;
+    if (this.handsMissingFor < 2 || this.clock - this.handHintAt < 8) return;
+    this.handHintAt = this.clock;
+    const controllers = [...session.inputSources].some((src) => !src.hand && !!src.gamepad);
+    this.coach.say(controllers ? 'Put the controllers down: your hands do everything.' : "Can't see your hands. Keep them in view, in good light.", 4);
   }
 
   /** See `detachToolkitHands`: the toolkit would otherwise draw stiff hands over the real ones. */
