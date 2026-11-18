@@ -8,6 +8,7 @@ import { CoopLink } from './net/coop';
 import { SERVER_URL } from './net/server';
 import { overtimeBest, streakEnding } from './game/progress';
 import { makeClearanceSystem } from './game/system';
+import { enterXR } from './game/entry';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const body = document.body;
@@ -98,6 +99,27 @@ async function boot() {
 
   // Play together: host a room (get a code) or join a friend's room with theirs.
   const coopBtn = $<HTMLButtonElement>('coop');
+  const coopDialog = $<HTMLDialogElement>('coop-dialog');
+  let roomCode = '';
+  const updateCode = () => {
+    $('coop-code').textContent = roomCode.padEnd(4, '_');
+    $<HTMLButtonElement>('coop-join').disabled = roomCode.length !== 4;
+    for (const button of $('coop-keypad').querySelectorAll('button')) button.disabled = roomCode.length === 4;
+    $<HTMLButtonElement>('coop-erase').disabled = !roomCode.length;
+  };
+  for (const letter of 'ABCDEFGHJKLMNPQRSTUVWXYZ') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'plain';
+    button.textContent = letter;
+    button.addEventListener('click', () => {
+      if (roomCode.length < 4) roomCode += letter;
+      updateCode();
+    });
+    $('coop-keypad').append(button);
+  }
+  $('coop-erase').addEventListener('click', () => { roomCode = roomCode.slice(0, -1); updateCode(); });
+  $('coop-cancel').addEventListener('click', () => coopDialog.close());
   let link: CoopLink | undefined;
   const showCoop = () => {
     if (!link) {
@@ -112,16 +134,21 @@ async function boot() {
   };
   coopBtn.hidden = !SERVER_URL;
   coopBtn.disabled = false;
-  coopBtn.addEventListener('click', async () => {
+  coopBtn.addEventListener('click', () => {
     if (link) {
       app?.leaveCoop();
       link = undefined;
       status.textContent = 'Left the room. Playing solo.';
       return showCoop();
     }
-    const code = window.prompt('Play together. To join a friend, type their 4-letter room code. To host, leave it empty and press OK.', '');
-    if (code === null) return;
-    const role = code.trim() ? 'guest' : 'host';
+    roomCode = '';
+    updateCode();
+    coopDialog.showModal();
+  });
+  const connectRoom = async (code: string) => {
+    coopDialog.close();
+    coopBtn.disabled = true;
+    const role = code ? 'guest' : 'host';
     status.textContent = role === 'host' ? 'Opening a room…' : `Joining room ${code.trim().toUpperCase()}…`;
     try {
       link = await CoopLink.open(role, code.trim());
@@ -136,8 +163,12 @@ async function boot() {
       link = undefined;
       status.textContent = e instanceof Error ? e.message : 'Could not start co-op.';
       showCoop();
+    } finally {
+      coopBtn.disabled = false;
     }
-  });
+  };
+  $('coop-host').addEventListener('click', () => void connectRoom(''));
+  $('coop-join').addEventListener('click', () => { if (roomCode.length === 4) void connectRoom(roomCode); });
   app.onCoopEnd = (why) => {
     link = undefined;
     status.textContent = why;
@@ -147,20 +178,33 @@ async function boot() {
     ? 'Sit at a table and put your controllers down. Your hands do everything.'
     : 'No headset here, so this opens a preview you play with your mouse by clicking the buttons above each robot. For the real thing, open this page on a Quest.';
 
-  const go = (mode: 'campaign' | 'daily' | 'overtime') => {
-    app?.sfx.unlock();
-    // A co-op guest plays the host's shift, which arrives over the connection.
-    if (app?.isGuest) {
-      /* nothing to load */
-    } else if (mode === 'daily') app?.loadDaily();
-    else if (mode === 'overtime') app?.loadOvertime();
-    else app?.loadLevel(app.campaignStart());
-    body.classList.remove('result');
-    body.classList.add('playing');
-    window.scrollTo(0, 0);
-    if (arOK) {
-      body.classList.add('in-xr');
-      world.launchXR();
+  let entering = false;
+  const go = async (mode: 'campaign' | 'daily' | 'overtime') => {
+    if (entering) return;
+    entering = true;
+    startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = true;
+    try {
+      app?.sfx.unlock();
+      // A co-op guest plays the host's shift, which arrives over the connection.
+      if (app?.isGuest) {
+        /* nothing to load */
+      } else if (mode === 'daily') app?.loadDaily();
+      else if (mode === 'overtime') app?.loadOvertime();
+      else app?.loadLevel(app.campaignStart());
+      body.classList.remove('result');
+      body.classList.add('playing');
+      window.scrollTo(0, 0);
+      if (arOK) {
+        body.classList.add('in-xr');
+        await enterXR(world);
+      }
+    } catch (err) {
+      body.classList.remove('playing', 'in-xr', 'result');
+      if (app && !app.userPaused && app.game.status === 'playing') app.togglePause();
+      status.textContent = `Could not start the shift. ${err instanceof Error ? err.message : 'Please try again.'} Select a shift to retry.`;
+    } finally {
+      entering = false;
+      startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = false;
     }
   };
   startBtn.addEventListener('click', () => go('campaign'));

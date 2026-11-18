@@ -17,6 +17,7 @@ const path = require('node:path');
 const URL = process.env.URL ?? 'https://localhost:4173/';
 const OUT = path.resolve(process.env.OUT ?? 'film');
 const FPS = +(process.env.FPS ?? 30);
+const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
 const FOV = +(process.env.FOV ?? 58); // vertical, degrees
 const SIZE = { width: +(process.env.W ?? 1280), height: +(process.env.H ?? 720) };
 
@@ -273,7 +274,9 @@ async function makeStage(page, sceneDir) {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   for (const name of names) {
-    const sceneDir = path.join(OUT, name);
+    if (!Object.hasOwn(SCENES, name)) throw new Error(`Unknown scene: ${name}`);
+    const sceneDir = path.resolve(OUT, name);
+    if (!sceneDir.startsWith(`${OUT}${path.sep}`)) throw new Error('Scene directory must stay inside the output folder');
     fs.rmSync(sceneDir, { recursive: true, force: true });
     fs.mkdirSync(sceneDir, { recursive: true });
     const page = await browser.newPage({ viewport: SIZE, ignoreHTTPSErrors: true });
@@ -312,7 +315,7 @@ async function makeStage(page, sceneDir) {
     await SCENES[name](stage);
     await page.close();
     const mp4 = path.join(OUT, `${name}.mp4`);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(sceneDir, '%05d.png'), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', mp4]);
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(sceneDir, '%05d.png'), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', mp4]);
     console.log(`  -> ${mp4}`);
   }
   await browser.close();

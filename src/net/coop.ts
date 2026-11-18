@@ -1,5 +1,6 @@
 import { SERVER_URL } from './server';
 import type { CoopMsg } from './snapshot';
+import { validCoopMessage } from './validate';
 
 export type Role = 'host' | 'guest';
 
@@ -52,13 +53,17 @@ export class CoopLink {
       ws.onmessage = (ev) => {
         let m: RelayMsg | CoopMsg;
         try {
-          m = JSON.parse(String(ev.data)) as RelayMsg | CoopMsg;
+          const value: unknown = JSON.parse(String(ev.data));
+          if (!value || typeof value !== 'object' || !('t' in value)) return;
+          m = value as RelayMsg | CoopMsg;
         } catch {
           return;
         }
         switch (m.t) {
           case 'room':
           case 'joined':
+            if (settled || !/^[ABCDEFGHJKLMNPQRSTUVWXYZ]{4}$/.test(m.code)
+              || (role === 'host' ? m.t !== 'room' : m.t !== 'joined')) return;
             link.code = m.code;
             link.partner = m.t === 'joined';
             settled = true;
@@ -68,11 +73,12 @@ export class CoopLink {
           case 'error':
             return fail(m.reason === 'no-room' ? 'No room with that code.' : m.reason === 'full' ? 'That room already has two players.' : 'The co-op server is busy. Try again soon.');
           case 'peer':
+            if (!settled || typeof m.joined !== 'boolean') return;
             link.partner = m.joined;
             link.onChange?.();
             return;
           default:
-            link.onMessage?.(m);
+            if (settled && validCoopMessage(m)) link.onMessage?.(m);
         }
       };
       ws.onerror = () => fail('Could not reach the co-op server.');

@@ -433,6 +433,23 @@ body.result .card {
   min-width: 0;
 }
 
+/* Browser UI is also used with hand rays in the Quest Browser. */
+#coop-dialog {
+  width: min(90vw, 520px);
+  padding: 24px;
+  background: var(--concrete);
+  color: var(--signal);
+  border: 4px solid var(--signal);
+  border-radius: 14px;
+}
+#coop-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+#coop-code { display: block; text-align: center; font: bold 36px monospace; letter-spacing: 12px; margin: 20px 0; }
+#coop-keypad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+#coop-keypad button { min-width: 48px; min-height: 48px; font-size: 22px; }
+.coop-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+#coop-dialog button { min-height: 48px; }
+button:focus-visible { outline: 3px solid #146bbc; outline-offset: 4px; }
+
 /* ------------------------------------------------------------------ small screens */
 
 @media (max-width: 900px) {
@@ -455,6 +472,7 @@ body.result .card {
 }
 
 @media (max-width: 520px) {
+  #coop-keypad { grid-template-columns: repeat(4, 1fr); }
   .signs {
     grid-template-columns: 1fr;
   }

@@ -33,7 +33,8 @@
               <button id="coop" class="plain" type="button" title="Two players, one warehouse: host a room or join with a code" hidden>Play together</button>
             </div>
           </div>
-          <p id="status" class="fine">Hands only. Seated. A shift takes about two minutes.</p>
+          <p id="status" class="fine" role="status" aria-live="polite">Hands only. Seated. A shift takes about two minutes.</p>
+          <p class="fine">Your first job: take a permit and give it to the blinking robot. The ghost hand shows you how.</p>
           </div>
         </div>
         <figure class="hero-shot">
@@ -43,7 +44,7 @@
 
       <section id="how" class="block" aria-labelledby="how-title">
         <h2 id="how-title">Six hand signals run the floor</h2>
-        <p class="intro">You never steer a robot. Each one picks a job and shows its plan as a dotted path. Your hands decide what is allowed to happen. Every signal also has a button, so you can play one-handed.</p>
+        <p class="intro">You never steer a robot. Each one picks a job and shows its plan as a dotted path. Your hands decide what is allowed to happen. Clear, reject, stop and pause also have buttons. You can play one-handed; lane blocking uses a flat hand or a real object.</p>
         <ul class="signs">
           <li>
             <svg class="sign" viewBox="0 0 100 100" aria-hidden="true">
@@ -176,11 +177,24 @@
         <p>More of the software around us now plans and acts by itself. The useful human skill is no longer doing the work, but knowing when to trust it: approving the right plans, catching the clever shortcut, and not blocking good work out of habit.</p>
         <p>Clearance turns that into something you can feel. At the end of every shift it scores your judgement two ways: the risks you let through, and the safe work you blocked. A well-calibrated supervisor keeps both low.</p>
         <p>Then it hands you more rope. Good shifts earn gold permits: give one to a robot you trust and it clears its own plans for twenty seconds, waiting for people by itself. Give it to one that still cuts corners and it cuts them with nobody watching. Your palm still stops it, and takes the gold back. You go from approving every move to deciding who has earned autonomy.</p>
-        <p class="credit">Made in London by Othniel Obasi for the Meta VR Start Developer Competition 2026. No accounts, no tracking, nothing leaves your headset.</p>
+        <p class="credit">Made in London by Othniel Obasi for the Meta VR Start Developer Competition 2026. No account required. Progress stays on your device. Optional online crew dialogue sends shift context to the companion server; co-op shares game state and hand positions with your partner.</p>
       </section>
 
       <div class="hazard" aria-hidden="true"></div>
     </main>
+
+    <dialog id="coop-dialog" aria-labelledby="coop-title">
+      <h2 id="coop-title">Play together</h2>
+      <p>Host a room, or enter your partner's four-letter code.</p>
+      <output id="coop-code" aria-live="polite" aria-label="Room code">____</output>
+      <div id="coop-keypad" aria-label="Room code letters"></div>
+      <div class="coop-controls">
+        <button id="coop-erase" class="plain" type="button">Erase letter</button>
+        <button id="coop-join" class="permit" type="button" disabled>Join room</button>
+        <button id="coop-host" class="plain" type="button">Host a room</button>
+        <button id="coop-cancel" class="plain" type="button">Cancel</button>
+      </div>
+    </dialog>
 
     <div class="card" id="share" role="dialog" aria-labelledby="share-title">
       <h2 id="share-title">Daily Shift</h2>

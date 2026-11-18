@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc",
     "eval": "tsx scripts/eval.ts",
-    "test:hands": "node scripts/hands-e2e.cjs"
+    "test:hands": "node scripts/hands-e2e.cjs",
+    "test:submission": "node scripts/submission-smoke.cjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

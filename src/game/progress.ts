@@ -2,6 +2,10 @@ import { type CrewMemory, type CrewName, emptyMemory } from '../core/crew';
 
 const KEY = 'clearance.progress.v1';
 
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const starsValid = (v: unknown): v is number => count(v) && v <= 3;
+
 export interface Progress {
   /** Index of the furthest level the player may start. */
   unlocked: number;
@@ -12,8 +16,11 @@ export function loadProgress(): Progress {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Progress;
-      if (typeof p.unlocked === 'number' && p.stars) return p;
+      const p: unknown = JSON.parse(raw);
+      if (record(p) && count(p.unlocked) && record(p.stars)) {
+        const stars = Object.fromEntries(Object.entries(p.stars).filter(([, n]) => starsValid(n))) as Record<string, number>;
+        return { unlocked: p.unlocked, stars };
+      }
     }
   } catch {
     /* storage unavailable: play without saving */
@@ -61,7 +68,19 @@ interface DailyRecord {
 function loadDaily(): DailyRecord {
   try {
     const raw = localStorage.getItem(DAILY_KEY);
-    if (raw) return JSON.parse(raw) as DailyRecord;
+    if (raw) {
+      const d: unknown = JSON.parse(raw);
+      if (record(d) && record(d.results)) {
+        const results: DailyRecord['results'] = {};
+        for (const [date, r] of Object.entries(d.results)) {
+          if (/^\d{8}$/.test(date) && record(r) && typeof r.won === 'boolean' && starsValid(r.stars)
+            && typeof r.calibration === 'number' && Number.isFinite(r.calibration) && r.calibration >= 0 && r.calibration <= 100) {
+            results[date] = { won: r.won, stars: r.stars, calibration: r.calibration };
+          }
+        }
+        return { results };
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -117,7 +136,22 @@ const OVERTIME_KEY = 'clearance.overtime.v1';
 export function loadCrew(): Record<string, CrewMemory> {
   try {
     const raw = localStorage.getItem(CREW_KEY);
-    if (raw) return JSON.parse(raw) as Record<string, CrewMemory>;
+    if (raw) {
+      const data: unknown = JSON.parse(raw);
+      if (record(data)) {
+        const crew: Record<string, CrewMemory> = {};
+        for (const name of ['Bolt', 'Pip', 'Rook', 'Juno']) {
+          const saved = data[name];
+          if (!record(saved)) continue;
+          const memory = emptyMemory();
+          for (const key of Object.keys(memory) as (keyof CrewMemory)[]) {
+            if (count(saved[key])) memory[key] = saved[key];
+          }
+          crew[name] = memory;
+        }
+        return crew;
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -146,7 +180,8 @@ export function saveCrew(tally: Map<CrewName, CrewMemory>) {
 
 export function overtimeBest(): number {
   try {
-    return Number(localStorage.getItem(OVERTIME_KEY) ?? 0) || 0;
+    const score = Number(localStorage.getItem(OVERTIME_KEY) ?? 0);
+    return count(score) ? score : 0;
   } catch {
     return 0;
   }

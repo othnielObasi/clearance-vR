@@ -337,6 +337,14 @@ export class ClearanceApp {
     this.start(overtimeLevel());
   }
 
+  /** Retry the current mode; a guest cannot replace the host's shift. */
+  retryShift() {
+    if (this.isGuest) return;
+    if (this.mode === 'daily') this.loadDaily();
+    else if (this.mode === 'overtime') this.loadOvertime();
+    else this.loadLevel(this.levelIndex);
+  }
+
   togglePause() {
     if (this.game.status !== 'playing') return;
     if (this.isGuest) return this.coopAct('pause');
@@ -423,7 +431,7 @@ export class ClearanceApp {
 
     this.nextBtn = this.addButton('▶', COLORS.go, () => this.loadLevel(this.levelIndex + 1), 0.04);
     this.nextBtn.mesh.position.set(0.05, 0.068, farZ - 0.004);
-    this.retryBtn = this.addButton('↻', 0x5b6573, () => (this.mode === 'daily' ? this.loadDaily() : this.loadLevel(this.levelIndex)), 0.04);
+    this.retryBtn = this.addButton('↻', 0x5b6573, () => this.retryShift(), 0.04);
     this.retryBtn.mesh.position.set(-0.05, 0.068, farZ - 0.004);
 
     // Mode row above the status card. The current mode is shown in grey; pressing it restarts.
@@ -1282,7 +1290,7 @@ export class ClearanceApp {
     this.myWalls = walls;
     const partner = this.isGuest || this.clock - this.partnerWallsAt < 1 ? this.partnerWalls : [];
     const all = [...walls];
-    for (const c of partner) if (!all.some((x) => x[0] === c[0] && x[1] === c[1])) all.push(c);
+    for (const c of partner) if (this.canWall(c) && !all.some((x) => x[0] === c[0] && x[1] === c[1])) all.push(c);
     this.view.setHandCells(all);
     if (this.isGuest) return; // the host applies them
     this.currentWalls = all;
@@ -1316,6 +1324,8 @@ export class ClearanceApp {
 
   /** A real object may wall off a cell, but never a robot's cell or a pickup or drop-off spot. */
   private canWall(c: Cell) {
+    const { w, h } = this.game.level.grid;
+    if (!Number.isInteger(c[0]) || !Number.isInteger(c[1]) || c[0] < 0 || c[1] < 0 || c[0] >= w || c[1] >= h) return false;
     const same = (a: readonly number[]) => a[0] === c[0] && a[1] === c[1];
     if (this.game.robots.some((r) => same(r.pos))) return false;
     return !this.game.tasks.some((t) => t.status !== 'done' && (same(t.from) || same(t.to)));

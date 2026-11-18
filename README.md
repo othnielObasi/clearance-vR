@@ -20,7 +20,7 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Pause | Turn one hand palm-up; poke the pause button that appears above it | Press ⏸ at the near-right corner |
 | Give standing clearance | Pinch the gold permit from its pad and drop it on any robot | Press ★ above the robot |
 
-Every gesture has a poke alternative, so the game is fully playable one-handed and on desktop (mouse clicks on the buttons).
+Clear, reject, stop, pause and gold clearance have poke alternatives, so the game is playable one-handed and on desktop (mouse clicks on the buttons). Moving the board uses a pinch; blocking a lane uses a flat hand or a real object.
 
 **Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness: pinches and open hands register more loosely, the palm can point less exactly, a slower brush rejects, and the buttons above each robot are 40% bigger and always shown instead of appearing only when a hand comes near. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking (the eye button) covers players who cannot lean.
 
@@ -56,6 +56,7 @@ npm run dev        # HTTPS dev server on your LAN
 npm test           # planner, authority rules and headless level simulations
 npm run build      # static build in dist/
 npm run test:hands # with `npm run preview` running: every hand gesture, end to end, in the emulator
+npm run test:submission # with preview running: room picker, retry modes, corrupt saves and denied XR entry
 ```
 
 **On a Quest:** run `npm run dev`, then open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.
@@ -124,6 +125,8 @@ Design rules the code enforces:
 
 ## Status
 
-Working: core simulation, levels 1–7, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (59 passing tests; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
+Submission materials: [form copy and release checklist](docs/SUBMISSION.md), [video script](docs/VIDEO-SCRIPT.md), and [physical headset acceptance sheet](docs/HEADSET-TEST.md). Hardware checks are explicitly pending until a tester records results.
+
+Working: core simulation, levels 1–7, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (automated tests cover rules, difficulty, saved-data recovery and co-op validation; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
 
 Not yet verified on a headset: hand-gesture thresholds, passthrough placement height and performance.

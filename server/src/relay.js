@@ -1,6 +1,7 @@
 // Two-player co-op relay. A host opens a room and gets a 4-letter code; a guest joins with it.
 // The server only passes messages between the two: the host's game decides everything.
 import { WebSocketServer } from 'ws';
+import { relayPacketAllowed } from './relay-protocol.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O: easy to read aloud and type
 const MAX_MSG = 64 * 1024;
@@ -84,6 +85,7 @@ function join(ws, params) {
   const refill = setInterval(() => (budget = MSGS_PER_SEC), 1000);
   ws.on('message', (data, isBinary) => {
     if (isBinary || --budget < 0) return; // text only, and no floods
+    if (!relayPacketAllowed(me, data.toString())) return;
     room.at = Date.now();
     const other = me === 'host' ? room.guest : room.host;
     if (other && other.readyState === 1) other.send(data.toString());
