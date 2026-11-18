@@ -1439,6 +1439,8 @@ export class ClearanceApp {
           this.view.puff(e.robot);
           this.sfx.brake(this.posOf(e.robot));
           this.sfx.voice(this.crewOf(e.robot), e.needed ? 'thanks' : 'indignant', this.posOf(e.robot));
+          // A needed stop was a near miss: beacons flash and the floor stops to look.
+          if (e.needed) this.view.surround?.react('alarm');
         }
         break;
       case 'refused':
@@ -1449,7 +1451,12 @@ export class ClearanceApp {
         this.sfx.voice(this.crewOf(e.robot), 'happy', this.posOf(e.robot));
         this.view.cheer(e.robot);
         const t = this.game.tasks.find((x) => x.id === e.task);
-        if (t) this.view.sparkle(t.to);
+        if (t) {
+          this.view.sparkle(t.to);
+          // The delivery drops onto the warehouse conveyor and the nearest workers wave.
+          this.view.surround?.addParcel(this.view.cellToLocal(t.to[0], t.to[1]).x);
+        }
+        this.view.surround?.react('deliver');
         break;
       }
       case 'incident': {
@@ -1458,6 +1465,7 @@ export class ClearanceApp {
         this.view.flash(e.robot);
         this.view.shake(e.robot);
         this.view.puff(e.robot, 0xff6b3d);
+        this.view.surround?.react('alarm');
         const r = this.game.robot(e.robot);
         if (r) this.view.bounceWorkerNear(r.pos);
         break;
@@ -1469,7 +1477,10 @@ export class ClearanceApp {
         if (e.status === 'won') this.sfx.win();
         else this.sfx.lose();
         // The crew celebrates a won shift.
-        if (e.status === 'won') for (const r of this.game.robots) this.view.cheer(r.id, true);
+        if (e.status === 'won') {
+          for (const r of this.game.robots) this.view.cheer(r.id, true);
+          this.view.surround?.react('win');
+        }
         // Last campaign shift won: celebrate across the floor.
         if (this.finishedCampaign()) {
           for (const r of this.game.robots) {

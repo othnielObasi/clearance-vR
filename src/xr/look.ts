@@ -1,6 +1,7 @@
 import {
   BackSide,
   BoxGeometry,
+  BufferAttribute,
   type BufferGeometry,
   type Material,
   CanvasTexture,
@@ -90,8 +91,36 @@ export interface CrewModel {
   wheels: Mesh[];
   antenna: Group;
   eyes: Mesh[];
+  /** The face display's colour: the eyes change colour and shape with the robot's mood. */
+  eyeMat: MeshBasicMaterial;
+  /** Lift deck on a scissor jack: rises with the crate on pickup. */
+  deck: Group;
+  scissor: Mesh;
+  /** Height of the deck when lowered (robot-local). */
+  deckBase: number;
+  /** Head and tail lamps; brighter when braking or stopped. */
+  lampMat: MeshBasicMaterial;
   /** Contact shadow; the board keeps it on the floor when the robot hops. */
   shadow: Mesh;
+}
+
+/** Paint a geometry one flat colour (as a vertex colour), so several parts can merge into one mesh. */
+export function painted(geo: BufferGeometry, color: number): BufferGeometry {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  const c = new Color(color);
+  const n = g.attributes.position!.count;
+  const a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+  g.setAttribute('color', new BufferAttribute(a, 3));
+  for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(name)) g.deleteAttribute(name);
+  return g;
+}
+
+/** Geometry translated (and optionally rotated about z / y), for building merged parts. */
+export function placed(geo: BufferGeometry, x: number, y: number, z: number, rotZ = 0, rotY = 0): BufferGeometry {
+  if (rotZ) geo.rotateZ(rotZ);
+  if (rotY) geo.rotateY(rotY);
+  return geo.translate(x, y, z);
 }
 
 interface Shape {
@@ -205,10 +234,40 @@ export function makeCrewRobot(name: CrewName, color: number): CrewModel {
   antenna.add(mast, light);
   root.add(antenna);
 
+  // Lift deck: a plate on a scissor jack that rises out of the body with the crate on it.
+  const deckBase = lift + s.h + (s.dome ? s.w * 0.3 : 0) + 0.0006;
+  const deck = new Group();
+  deck.position.y = deckBase;
+  const plate = new Mesh(new RoundedBoxGeometry(0.019, 0.0012, 0.019, 1, 0.0005), mat(0x3a4049, 0.4, { metalness: 0.5 }));
   const cargo = makeCrate(0.016);
-  cargo.position.y = lift + s.h + 0.008 + (s.dome ? 0.004 : 0);
-  cargo.visible = false;
-  root.add(cargo);
+  cargo.position.y += 0.0006;
+  deck.add(plate, cargo);
+  deck.visible = false;
+  root.add(deck);
+  // Crossed bars, one unit tall and 14 mm deep, sheared rather than rotated: scaling the jack's
+  // height then changes only how steep the bars are, as on a real scissor lift.
+  const bar = (x: number, dir: number) => {
+    const g = new BoxGeometry(0.0012, 1, 0.0012).translate(x, 0.5, 0);
+    const p = g.attributes.position!;
+    for (let i = 0; i < p.count; i++) p.setZ(i, p.getZ(i) + dir * 0.014 * (p.getY(i) - 0.5));
+    g.computeVertexNormals();
+    return g;
+  };
+  const jack = mergeGeometries([bar(-0.004, 1), bar(-0.004, -1), bar(0.004, 1), bar(0.004, -1)])!;
+  const scissor = new Mesh(jack, mat(0x8b939e, 0.35, { metalness: 0.6 }));
+  scissor.position.y = deckBase - 0.0006;
+  scissor.visible = false;
+  root.add(scissor);
+
+  // Head lamps (warm white, front) and tail lamps (red, back): one mesh, coloured per vertex.
+  const lampY = lift + s.h * 0.28;
+  const lampGeos: BufferGeometry[] = [];
+  for (const side of [-1, 1]) {
+    lampGeos.push(painted(placed(new SphereGeometry(0.0011, 8, 6), side * s.w * 0.36, lampY, -s.d / 2 - 0.0002), 0xfff4d6));
+    lampGeos.push(painted(placed(new BoxGeometry(0.004, 0.0016, 0.0008), side * s.w * 0.32, lampY + s.h * 0.2, s.d / 2 + 0.0003), 0xff2a2a));
+  }
+  const lampMat = new MeshBasicMaterial({ vertexColors: true, color: 0xa8a8a8 });
+  root.add(new Mesh(mergeGeometries(lampGeos)!, lampMat));
 
   const haloMat = new MeshBasicMaterial({ color: COLORS.stop, transparent: true, opacity: 0, depthWrite: false });
   const halo = new Mesh(new RingGeometry(0.021, 0.026, 32), haloMat);
@@ -217,7 +276,7 @@ export function makeCrewRobot(name: CrewName, color: number): CrewModel {
   const shadow = makeBlob(s.w * 1.7, s.d * 1.6, 0.42);
   root.add(halo, shadow);
 
-  return { root, body, light, lightMat, cargo, halo, haloMat, wheels, antenna, eyes, shadow };
+  return { root, body, light, lightMat, cargo, halo, haloMat, wheels, antenna, eyes, eyeMat, deck, scissor, deckBase, lampMat, shadow };
 }
 
 // ------------------------------------------------------------------ props
@@ -307,13 +366,46 @@ export function makePuddle(): Mesh {
   return m;
 }
 
-/** A tiny worker in a hard hat and hi-vis vest. */
-export function makeWorkerV2(): { root: Group; figure: Group } {
+export interface WorkerModel {
+  root: Group;
+  figure: Group;
+  /** Hip pivots (left, right): rotate about x to walk. */
+  legs: Group[];
+  /** Shoulder pivots (left, right): rotate about x to swing, about z to wave. */
+  arms: Group[];
+}
+
+/** A tiny worker in a hard hat and hi-vis vest, with legs and arms that move. */
+export function makeWorkerV2(): WorkerModel {
   const root = new Group();
   const figure = new Group();
-  const legs = new Mesh(new CapsuleGeometry(0.0042, 0.008, 4, 10), mat(0x2b3a55, 0.7));
-  legs.position.y = 0.007;
-  const torso = new Mesh(new CapsuleGeometry(0.0055, 0.008, 4, 12), mat(0x2f6fde, 0.6));
+  const trousers = mat(0x2b3a55, 0.7);
+  const legGeo = new CapsuleGeometry(0.0022, 0.0068, 4, 8);
+  const legs = [-1, 1].map((side) => {
+    const hip = new Group();
+    hip.position.set(side * 0.0024, 0.0114, 0);
+    const leg = new Mesh(legGeo, trousers);
+    leg.position.y = -0.0056;
+    hip.add(leg);
+    figure.add(hip);
+    return hip;
+  });
+  const sleeve = mat(0x2f6fde, 0.6);
+  const armGeo = new CapsuleGeometry(0.0016, 0.0062, 4, 8);
+  const handMat = mat(0xe8b98f, 0.6);
+  const handGeo = new SphereGeometry(0.0017, 8, 6);
+  const arms = [-1, 1].map((side) => {
+    const shoulder = new Group();
+    shoulder.position.set(side * 0.0068, 0.0215, 0);
+    const arm = new Mesh(armGeo, sleeve);
+    arm.position.y = -0.0045;
+    const hand = new Mesh(handGeo, handMat);
+    hand.position.y = -0.0088;
+    shoulder.add(arm, hand);
+    figure.add(shoulder);
+    return shoulder;
+  });
+  const torso = new Mesh(new CapsuleGeometry(0.0055, 0.008, 4, 12), sleeve);
   torso.position.y = 0.0165;
   const vest = new Mesh(new TorusGeometry(0.0054, 0.0016, 6, 16), mat(0xff7a1a, 0.5, { emissive: new Color(0x401a00) }));
   vest.rotation.x = Math.PI / 2;
@@ -324,9 +416,9 @@ export function makeWorkerV2(): { root: Group; figure: Group } {
   hat.position.y = 0.0295;
   const brim = new Mesh(new CylinderGeometry(0.0068, 0.0068, 0.0006, 16), mat(0xffd23f, 0.35));
   brim.position.y = 0.0296;
-  figure.add(legs, torso, vest, head, hat, brim);
+  figure.add(torso, vest, head, hat, brim);
   root.add(figure, makeBlob(0.016, 0.016, 0.4));
-  return { root, figure };
+  return { root, figure, legs, arms };
 }
 
 /** Floor texture drawn for a specific grid: clean concrete, faint tile seams, safety border. */

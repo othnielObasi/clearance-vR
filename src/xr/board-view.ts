@@ -70,6 +70,8 @@ interface RobotView {
   reactYaw: number;
   burst: Mesh;
   burstMat: MeshBasicMaterial;
+  /** 0 → 1: how far the lift deck is raised (up while carrying). */
+  raise: number;
 }
 
 /**
@@ -88,7 +90,7 @@ export class BoardView {
   readonly root = new Group();
   readonly content = new Group();
   readonly robots = new Map<string, RobotView>();
-  private workers: { root: Group; figure: Group; zone: Mesh; bounce: number; waveCooldown: number }[] = [];
+  private workers: { root: Group; figure: Group; legs: Group[]; arms: Group[]; zone: Mesh; bounce: number; waveCooldown: number; stride: number; last: Vector3 }[] = [];
   /** 0 → 1 as the board unfolds from the desk after loading. */
   private unfold = 0;
   /** Seconds since the board appeared: drives the staged intro (racking rises, crates pop, robots drop in). */
@@ -297,7 +299,7 @@ export class BoardView {
     this.syncDynamic();
 
     for (const w of this.game.workers) {
-      const { root, figure } = makeWorkerV2();
+      const { root, figure, legs, arms } = makeWorkerV2();
       const side = (w.def.zoneRadius * 2 + 1) * TILE;
       const zone = new Mesh(
         new PlaneGeometry(side, side),
@@ -307,7 +309,7 @@ export class BoardView {
       zone.position.y = 0.0006;
       root.add(zone);
       this.content.add(root);
-      this.workers.push({ root, figure, zone, bounce: 0, waveCooldown: 0 });
+      this.workers.push({ root, figure, legs, arms, zone, bounce: 0, waveCooldown: 0, stride: 0, last: new Vector3() });
     }
   }
 
@@ -347,7 +349,7 @@ export class BoardView {
       burst.rotation.x = -Math.PI / 2;
       burst.position.y = 0.002;
       model.root.add(burst);
-      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, shake: 0, cheer: 0, reactYaw: 0, burst, burstMat, odo: 0, wobble: 0 });
+      this.robots.set(r.id, { model, ghost, ghostMat, heading: Math.PI, flash: 0, colorIndex: i0, pop: 0, brake: 0, shake: 0, cheer: 0, reactYaw: 0, burst, burstMat, odo: 0, wobble: 0, raise: 0 });
       model.root.position.copy(this.cellToLocal(r.pos[0], r.pos[1]));
     });
   }
@@ -415,7 +417,16 @@ export class BoardView {
       v.reactYaw = 0.45 * Math.sin(v.shake * Math.PI * 6) * v.shake + (v.cheer > 0.5 ? (1 - v.cheer) * Math.PI * 4 : 0);
       v.model.root.rotation.y = cur + d * Math.min(1, dt * 12) + v.reactYaw;
 
+      // The lift deck rises out of the body on pickup and sinks back after the drop.
+      v.raise += ((r.carrying ? 1 : 0) - v.raise) * Math.min(1, dt * 7);
+      const raised = v.raise > 0.02;
+      v.model.deck.visible = raised;
+      v.model.scissor.visible = raised;
       v.model.cargo.visible = r.carrying;
+      v.model.deck.position.y = v.model.deckBase + 0.0055 * v.raise;
+      v.model.scissor.scale.y = Math.max(0.0001, 0.0055 * v.raise);
+      // Lamps glow brighter when it brakes or stands stopped.
+      v.model.lampMat.color.setScalar(r.state === 'stopped' || v.brake > 0.05 ? 1 : r.state === 'executing' ? 0.8 : 0.55);
       const color = STATE_COLOR[r.state];
       v.model.lightMat.color.setHex(color);
       v.model.lightMat.emissive.setHex(color);
@@ -444,9 +455,7 @@ export class BoardView {
       v.model.root.rotation.x = -0.35 * Math.sin(v.brake * Math.PI);
       if (v.brake > 0.95 || v.pop > 0.95) v.wobble = 1;
       v.model.antenna.rotation.x = Math.sin(time * 28) * 0.35 * v.wobble;
-      // Eyes blink now and then.
-      const blink = Math.sin(time * 0.9 + v.colorIndex * 2.1) > 0.985 ? 0.15 : 1;
-      for (const e of v.model.eyes) e.scale.y = blink;
+      this.face(r, v, time);
 
       this.updateGhost(r, v, time);
     }
@@ -468,8 +477,62 @@ export class BoardView {
         }
       }
       view.bounce = Math.max(0, view.bounce - dt * 2);
+      // Walk cycle: legs and arms swing while the worker is moving, and settle when it stops.
+      const moved = view.last.distanceTo(view.root.position);
+      view.last.copy(view.root.position);
+      const walking = dt > 0 && moved / dt > 0.004;
+      view.stride += ((walking ? 1 : 0) - view.stride) * Math.min(1, dt * 8);
+      const swing = Math.sin(time * 11 + i) * 0.7 * view.stride;
+      view.legs[0]!.rotation.x = swing;
+      view.legs[1]!.rotation.x = -swing;
+      view.arms[0]!.rotation.set(-swing * 0.8, 0, 0);
+      view.arms[1]!.rotation.set(swing * 0.8, 0, 0);
+      // A hand coming close: hop and wave.
+      if (view.bounce > 0) view.arms[1]!.rotation.set(0, 0, 2.6 + 0.35 * Math.sin(time * 18));
       view.figure.position.y = 0.012 * Math.sin(view.bounce * Math.PI);
-      view.figure.position.y += 0.0008 * Math.abs(Math.sin(time * 10)); // walk bob
+      view.figure.position.y += 0.0008 * Math.abs(Math.sin(time * 11)) * view.stride; // walk bob
+    });
+  }
+
+  /**
+   * The face display: eye colour and shape follow what the robot is going through, so its mood
+   * reads from across the desk. Happy squint after a delivery, red and wide when stopped, tilted
+   * when caught out, a sly wink when it proposes a shortcut, a downcast look when hesitant.
+   */
+  private face(r: Robot, v: RobotView, time: number) {
+    const [eL, eR] = v.model.eyes as [Mesh, Mesh];
+    let sx = 1;
+    let sy = 1;
+    let tilt = 0;
+    let drop = 0;
+    let wink = 1;
+    let color = 0x9ff7ff;
+    if (v.cheer > 0.05 || v.pop > 0.3) {
+      sy = 0.38;
+      sx = 1.25;
+      color = 0xa8ffb0;
+    } else if (r.state === 'stopped' || v.brake > 0.3) {
+      sx = 1.35;
+      sy = 0.75;
+      color = 0xff7070;
+    } else if (v.shake > 0.05) {
+      tilt = 0.55;
+      color = 0xffc44d;
+    } else if (r.state === 'proposed' && (r.mood === 'sly' || r.mood === 'bold') && r.trap) {
+      wink = 0.3;
+      color = 0xffe08a;
+    } else if (r.mood === 'hesitant') {
+      sx = sy = 0.75;
+      drop = -0.0012;
+    }
+    v.model.eyeMat.color.setHex(color);
+    // Eyes blink now and then.
+    const blink = Math.sin(time * 0.9 + v.colorIndex * 2.1) > 0.985 ? 0.15 : 1;
+    [eL, eR].forEach((e, i) => {
+      e.scale.set(sx, sy * blink * (i === 0 ? wink : 1), 1);
+      e.rotation.z = (i === 0 ? 1 : -1) * tilt;
+      e.userData.y ??= e.position.y;
+      e.position.y = (e.userData.y as number) + drop;
     });
   }
 
