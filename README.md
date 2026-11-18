@@ -1,17 +1,78 @@
+<div align="center">
+
 # Clearance
 
 **Tiny robots plan. Nothing moves without your clearance.**
 
-A hands-first, seated mixed-reality puzzle game for Meta Quest, built with the Immersive Web SDK (WebXR). Autonomous robots work on your real table: each one picks its own task, plans its own route and shows it as a glowing ghost path. You are the authority. Hand a robot a permit to let it move, brush a bad plan aside, or hold up your palm to stop it.
+A hands-only, seated mixed-reality game for Meta Quest, played on your real table.
 
-Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Experience division. Project started 5 November 2026.
+[![Play in the Meta Quest Browser](https://img.shields.io/badge/Play-clearance--v--r.vercel.app-2ea44f?style=for-the-badge)](https://clearance-v-r.vercel.app)
 
-## Play
+![WebXR](https://img.shields.io/badge/WebXR-immersive--ar-0a7ea4)
+![Meta Immersive Web SDK](https://img.shields.io/badge/Meta-Immersive_Web_SDK-0467DF)
+![three.js](https://img.shields.io/badge/three.js-r185-black)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
+![Hand tracking](https://img.shields.io/badge/input-hands_only-orange)
+
+<img src="docs/images/hero.jpg" alt="Clearance in passthrough on a real desk: a player's hand reaches toward a robot asking for clearance next to a worker" width="100%">
+
+<sub>Recorded on a Meta Quest 3 in passthrough. All images are real headset gameplay.</sub>
+
+</div>
+
+---
+
+Autonomous robots work a miniature warehouse on your desk. Each one picks its own job, plans its own route and asks for your OK. You never steer them. You decide **who is allowed to move**: hand over a permit, brush a bad plan aside, or raise a palm to stop a robot heading for a worker.
+
+Not every robot is honest. Bolt and Juno love shortcuts. Every shift ends with a report on how well your trust was calibrated: risky plans you let through, and safe work you blocked.
+
+> Entry for the **Meta VR Start Developer Competition 2026**, Gaming track, New Experience division. Development started on 5 November 2026.
+
+## Contents
+
+- [Try it](#try-it)
+- [How to play](#how-to-play)
+- [Features](#features)
+- [Run it locally](#run-it-locally)
+- [How it is built](#how-it-is-built)
+- [Testing and evaluation](#testing-and-evaluation)
+- [Developer tools](#developer-tools)
+- [Online extras (optional)](#online-extras-optional)
+- [Status](#status)
+
+## Try it
+
+1. On a **Meta Quest 3 or 3S**, open **https://clearance-v-r.vercel.app** in the Meta Quest Browser.
+2. Sit at a table and **put the controllers down**, out of reach, so the headset switches to hand tracking.
+3. Press **Start shift** and allow the room-scan permission. The board settles on your real table.
+4. Follow the ghost hand. The campaign teaches one gesture at a time.
+
+No install, no account. On a laptop the same link opens a mouse-driven preview.
+
+## How to play
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/clear.jpg" alt="A robot asks Needs your OK and replies On it after the player clears it"><br><b>Clear a plan.</b> Pinch a permit from the dispenser and drop it on a waiting robot, or press ✓.</td>
+<td width="50%"><img src="docs/images/brush.gif" alt="The player brushes a hand across a robot's shortcut plan and the robot says Caught me"><br><b>Turn down a shortcut.</b> Brush across the ghost path, like clearing crumbs off a table, or press ✗.</td>
+</tr>
+<tr>
+<td><img src="docs/images/palm.jpg" alt="An open palm with a red stop ring held toward the robots"><br><b>Stop a robot.</b> Hold an open palm toward it. Both palms stop the whole floor.</td>
+<td><img src="docs/images/wall.jpg" alt="A hand resting on the board; the HUD reads Path blocked, it will replan"><br><b>Close a lane.</b> Rest a flat hand on the board. Robots replan around it, and so do real objects such as a mug.</td>
+</tr>
+<tr>
+<td><img src="docs/images/workers.jpg" alt="A robot stopped next to a worker says Phew, thanks"><br><b>Workers first.</b> From shift 2, people walk the floor. Stop anything heading for them.</td>
+<td><img src="docs/images/report.jpg" alt="The end-of-shift card reading Shift complete with stars and trust results"><br><b>Every shift ends with a verdict</b>: what you caught, what you let through, and safe work you blocked.</td>
+</tr>
+</table>
+
+<details>
+<summary><b>Full controls, with the button alternative for every gesture</b></summary>
 
 | Action | Hands | Poke / click alternative |
 | --- | --- | --- |
 | Clear a robot to move | Pinch a permit from the dispenser and drop it on a robot that is waiting (blinking amber light) | Press ✓ above the robot |
-| Reject a plan | Brush the ghost path aside, as you'd clear crumbs off a table: one quick sideways sweep with any part of your fingers, fingertip or little-finger edge | Press ✗ above the robot |
+| Reject a plan | Brush the ghost path aside: one quick sideways sweep with any part of your fingers | Press ✗ above the robot |
 | Stop one robot | Open palm facing the robot, hold briefly | Press ■ above the robot |
 | Stop everything | Both palms up, hold briefly | Press the red ■ on the dispenser |
 | Move the board | Pinch the cyan handle at the near edge | — |
@@ -20,54 +81,107 @@ Entry for the Meta VR Start Developer Competition 2026 — Gaming track, New Exp
 | Pause | Turn one hand palm-up; poke the pause button that appears above it | Press ⏸ at the near-right corner |
 | Give standing clearance | Pinch the gold permit from its pad and drop it on any robot | Press ★ above the robot |
 
-Clear, reject, stop, pause and gold clearance have poke alternatives, so the game is playable one-handed and on desktop (mouse clicks on the buttons). Moving the board uses a pinch; blocking a lane uses a flat hand or a real object.
+Clear, reject, stop, pause and gold clearance all have poke alternatives, so the game is playable one-handed and on desktop.
 
-**Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness: pinches and open hands register more loosely, the palm can point less exactly, a slower brush rejects, and the buttons above each robot are 40% bigger and always shown instead of appearing only when a hand comes near. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking (the eye button) covers players who cannot lean.
+</details>
 
-Levels in this build: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits, three robots), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits: more work than permits, so you must delegate, and delegating to the wrong robot loses the shift), 6 Close the Aisle (a worker paces a busy aisle: stop robots in time, or close the aisle with your hand or a real object), 7 Peak Season (the finale: four robots, both rule-benders, a worker, a spill, tall racking and earned gold permits).
+### Accessibility
 
-**Standing clearance (gold permits).** Some modes earn a gold permit every few deliveries (Overtime: every 4; Standing Orders: every 2, starting with one). Hand it to a robot and for 20 seconds it clears its own plans, shown by a gold halo that counts down. A robot on its own waits for workers to pass by itself, but it still plans by its own idea of the rules: a robot that is still cutting corners will take a shortcut unwatched, and that counts as a risk you let through. A stop takes the gold back at once. In Overtime, a reformed robot can relapse while holding gold. The decision moves from "is this plan safe?" to "who has earned autonomy, and when do I take it back?". Plus the **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card. And **Overtime**: an endless shift where tasks keep coming, new robots join as you score, reformed robots relapse, and every delivery earns a permit back; it ends at your first safety mistake. A stop that genuinely prevents harm refunds its permit; taking a permit straight back does not count.
+**Assist mode** (landing page, or the pause menu in the headset) is for players with limited reach, grip or steadiness. Pinches and open hands register more loosely, the palm can point less exactly, a slower brush still rejects, and the buttons above each robot are 40% larger and always shown. Hold times are unchanged, so a resting hand does not stop robots by accident. The setting is remembered on the device. See-through racking covers players who cannot lean.
 
-**The crew.** Bolt (orange, rule-bender), Pip (teal, careful), Rook (purple, steady) and Juno (pink, speedy) appear across all modes. Each remembers how you treated them between sessions (caught, let through, stopped for nothing, saved) and greets you accordingly. Bolt starts bold if you have let his shortcuts through more often than you caught them.
+## Features
 
-**Your real desk matters.** On entering the headset the game finds your real table from the Quest's room setup (WebXR plane detection) and rests the board on it, falling back to a hit-test ray and then to a head-relative position; a spatial anchor keeps it there. The headset's depth sensor then watches the board: put a mug, a bottle or a box on it, take your hand away, and after about a second the cells under it become walls that robots plan round, just like a flat hand. Scans pause while a hand is over the board so arms never count, and pickup and drop-off spots are never blocked. Add `?occlusion` to let real hands and objects hide the robots behind them (off by default until tuned on a headset). Each shift ends with a field note linking its lesson to how real automated systems are supervised.
+<table>
+<tr>
+<td align="center"><img src="public/crew-bolt.webp" width="110" alt="Bolt"><br><b>Bolt</b><br><sub>rule-bender</sub></td>
+<td align="center"><img src="public/crew-pip.webp" width="110" alt="Pip"><br><b>Pip</b><br><sub>careful</sub></td>
+<td align="center"><img src="public/crew-rook.webp" width="110" alt="Rook"><br><b>Rook</b><br><sub>steady</sub></td>
+<td align="center"><img src="public/crew-juno.webp" width="110" alt="Juno"><br><b>Juno</b><br><sub>speedy</sub></td>
+</tr>
+</table>
 
-**A warehouse around the board.** The board is drawn at 72 × 48 cm, covering most of a desk, and sits at the near corner of a larger warehouse: rows of racking, background robots working the aisles and a conveyor behind the loading dock, on the left, right and far sides, dissolving with distance so it never ends in a hard edge off the real table. The near side stays clear for your arms, the permit dispenser and the corner buttons. It is decorative only and built in a handful of draw calls; on a headset it hides itself if frames get slow, and `?nowarehouse` turns it off.
+- **Seven campaign shifts**, each teaching one idea: 1 First Shift (grant and reject), 2 Someone's Here (workers and stops), 3 Short Supply (scarce, expiring permits), 4 Too Good To Be True (trap proposals), 5 Standing Orders (gold permits), 6 Close the Aisle (block lanes with your hand or a real object), 7 Peak Season (everything at once).
+- **Daily Shift**: one generated level per UTC day, the same for everyone, with a streak and a copyable result card.
+- **Overtime**: an endless shift where new robots join, reformed robots relapse, and every delivery earns a permit back. It ends at your first safety mistake.
+- **Standing clearance (gold permits)**: hand a trusted robot 20 seconds of autonomy, shown by a gold halo. It still plans by its own idea of the rules, so giving gold to the wrong robot lets shortcuts through. A palm takes the gold back at once.
+- **A crew that remembers.** Each robot remembers how you treated it between sessions (caught, let through, stopped for nothing, saved) and greets you accordingly.
+- **Ghost-hand tutorial.** The first time a gesture is needed, a translucent hand acts it out on the real board, and it stops the moment you do the gesture yourself.
+- **Forgiving by design.** A near-miss gesture earns a hint first. Repeated near misses bring up the poke buttons, and a brush only counts if your fingertips touched the plan first, so reaching across the table never rejects a plan by accident.
 
-**Tuning on a headset.** Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board. The game also keeps a gesture report on the device (what fired, what nearly fired, the measured pinch gaps, flick speeds and palm angles, and the frame rate). After playing, come back to the page, still with `?debug`, and press **Copy test report**. This is how a remote tester with a Quest can send back real numbers for tuning. The report never leaves the device unless they copy it.
+<details>
+<summary><b>Mixed reality: how the game uses your room</b></summary>
 
-**No headset? Use the emulator.** Add `?emulate` to the address (for example `http://localhost:5173/?emulate`, or the deployed site). Meta's Immersive Web Emulation Runtime replaces WebXR with an emulated Quest 3 with tracked hands, seated at the desk of a synthetic room. Start shift then runs the real mixed-reality session: the board snaps to the emulated desk, the depth scanner sees the room, and the on-screen controls move your head and hands and change hand poses. Use `?emulate=kitchen` (or `bedroom`, `open_office`, …) for another room, and `&nocontrols` to hide the controls when filming. Normal visitors never download the emulator.
+- **Your real desk.** On entering the headset the game finds your real table from the Quest's room setup (WebXR plane detection) and rests the board on it, falling back to a hit-test ray and then to a head-relative position. A spatial anchor keeps it there.
+- **Real objects become walls.** The headset's depth sensor watches the board. Put a mug, a bottle or a box on it, take your hand away, and after about a second the cells under it become walls that robots plan around, just like a flat hand. Scans pause while a hand is over the board, so arms never count, and pickup and drop-off spots are never blocked. Add `?occlusion` to let real hands and objects hide the robots behind them.
+- **Your real hands in front.** The toolkit's hand models are switched off so you see your real hands through passthrough. An invisible, depth-only copy of each tracked hand is drawn first, so the board never draws over your hand.
+- **A warehouse around the board.** The 72 × 48 cm board sits at the near corner of a larger warehouse of racking, forklifts, staff and a conveyor, dissolving with distance so it never ends in a hard edge. It is decorative, built in a handful of draw calls, and hides itself if frames get slow (`?nowarehouse` turns it off).
 
-**Your real hands in front of the board.** In the headset the toolkit's own hand models are switched off, so you see your real hands through passthrough, and an invisible, depth-only copy of each tracked hand is drawn first, slightly oversized for tracking lag. So the board and robots never draw over your real hand, and the hand properly covers what is behind it. In the emulator, which has no passthrough, the hands are drawn instead; add `&occluders` to see the headset behaviour (the hand shows as a cut-out).
+</details>
 
-**Ghost-hand tutorial.** The first time a gesture is needed, a translucent hand acts it out on the real board: pinching the permit and dropping it on the waiting robot, brushing a shortcut aside, holding a palm up to a moving robot near a worker, laying a flat hand across the aisle in Close the Aisle. It stops the moment the player does the gesture themselves (remembered between sessions), and shows at most four times a level. Hand shapes come from the emulator's MIT-licensed pose library.
+## Run it locally
 
-**Filming without a headset.** `node scripts/film.cjs [scene ...]` (with `npm run preview` running, Playwright and ffmpeg installed) records scripted scenes in the emulator: `firstPermit`, `flick`, `palmStop`, `handWall`, `gold`. A shim takes over the page's frame loop so each frame advances exactly 1/30 s (`FPS=60` for smoother) however slowly the machine renders; emulated hands act out each gesture and the head sways slightly as a seated player's would. Output is `film/<scene>.mp4` at 1280×720 (set `W` and `H` for other sizes). Label it as emulator footage in the video.
-
-**Fail-safes for untuned gestures.** The game stays hands-first: a first near miss (a pinch, palm or brush in the right place but just short of the threshold) only earns a coach hint. From the second, the poke buttons appear for 12 seconds; after four in a shift they stay for the rest of it, and any robot left asking for 12 seconds shows its buttons. A brush only counts when the fingertips rested on the plan first, so reaching across the table can't reject a plan by accident.
-
-## Run it
-
-Requires Node.js 20.19 or newer.
+Requires **Node.js 20.19 or newer**.
 
 ```bash
 npm install
-npm run dev        # HTTPS dev server on your LAN
-npm test           # planner, authority rules and headless level simulations
-npm run build      # static build in dist/
-npm run test:hands # with `npm run preview` running: every hand gesture, end to end, in the emulator
-npm run test:submission # with preview running: room picker, retry modes, corrupt saves and denied XR entry
+npm run dev              # HTTPS dev server on your LAN
+npm test                 # planner, authority rules and headless level simulations
+npm run build            # type-check and static build in dist/
+npm run eval             # bots play every level and print difficulty metrics
+npm run test:hands       # with `npm run preview` running: every hand gesture, end to end, in the emulator
+npm run test:submission  # with preview running: room picker, retry modes, corrupt saves and denied XR entry
 ```
 
-**On a Quest:** run `npm run dev`, then open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.
+**On a Quest:** run `npm run dev`, open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, accept the self-signed certificate warning, and press **Start shift**. WebXR requires HTTPS, which is why the dev server uses a local certificate.
 
-**Deploy to Vercel:** import the GitHub repo at vercel.com/new (framework, build command and output folder come from `vercel.json`), or from this folder run `npx vercel --prod`. Every push to `main` then redeploys.
+**No headset?** Add `?emulate` to the address. Meta's Immersive Web Emulation Runtime replaces WebXR with an emulated Quest 3 with tracked hands, seated at the desk of a synthetic room. Use `?emulate=kitchen` (or `bedroom`, `open_office`, …) for another room. Normal visitors never download the emulator.
 
-**Deploy to GitHub Pages:** push to `main` on GitHub with Pages enabled (Settings → Pages → Source: GitHub Actions). The workflow runs the tests, builds with the right base path and publishes to `https://<user>.github.io/<repo>/`.
+**Deploy:** every push to `main` redeploys on Vercel (settings in `vercel.json`). A GitHub Pages workflow is also included in `.github/workflows/deploy.yml`.
 
-## Evaluation
+## How it is built
 
-`npm run eval` plays every level with three bot players and prints a metrics table:
+TypeScript, [Meta's Immersive Web SDK](https://github.com/meta/immersive-web-sdk) and three.js, on WebXR in the Meta Quest Browser. A deterministic simulation runs separately from rendering, so the rules can be unit-tested and played by bots.
+
+```mermaid
+flowchart LR
+    H[Tracked hand joints] --> G[Gesture recognition<br/>pinch · brush · palm · flat hand · fingertip press]
+    G --> A[Game glue<br/>gestures to actions]
+    A -->|grant · reject · stop · wall| S[Deterministic simulation<br/>robots · planner · permits · hazards · scoring]
+    S --> V[Board view, HUD, audio]
+    R[Room: planes · anchors · depth] --> V
+    R -->|real objects become walls| S
+```
+
+```
+src/
+  core/        Pure TypeScript simulation, no rendering: deterministic and unit-tested
+    game.ts      Robots' state machine, authority (permits, stops, rules), hazards, scoring
+    planner.ts   A* routing with space-time reservations so cleared robots never collide
+    daily.ts     Daily Shift generator    overtime.ts  Endless mode    crew.ts  Crew memory
+  levels/      Level JSON files and validator
+  game/        Glue between the simulation and the XR world (actions, coach, progress, gesture log)
+  xr/          Rendering and input: gestures, fingertip presses, desk scan, anchors, board, HUD, audio
+  eval/        Bot players and metrics
+  net/         Optional companion-server client (lines, debrief, co-op)
+server/        Optional companion server (Docker + Caddy)
+tests/         Vitest suites
+scripts/       Evaluation, end-to-end hand tests, scripted filming
+```
+
+**Design rules the code enforces:**
+
+- **Agents act, the player authorises.** Robots always choose and plan on their own; the player never steers them. A robot only moves after `Game.grant()` consumes a valid, unexpired permit.
+- **Stops never wait for the planner.** `Game.stop()` halts immediately and drops the plan; the robot must be cleared again.
+- **Traps are real plans.** A shortcut-biased robot plans while ignoring one rule. Granting it causes an incident; rejecting it teaches that robot to plan honestly for that task.
+- **Deterministic.** The same level seed and the same inputs give the same outcome, so levels are testable and the Daily Shift is fair.
+- **Works offline.** No account or server is needed; the optional online extras fail quietly.
+- **Performance first.** The game requests 72 Hz, and a frame-rate guard steps down decorative effects if the headset falls behind.
+
+## Testing and evaluation
+
+- **Unit and simulation tests** (`npm test`, Vitest): planner, authority rules, gold permits, crew memory, saved-data recovery, gesture detection, fingertip presses and co-op validation.
+- **End-to-end hand tests** (`npm run test:hands`, Playwright): emulated hands perform every gesture against the real built game.
+- **Difficulty bands** (`npm run eval`): every level is played by three bot players.
 
 | Metric | What it tells us | Target |
 | --- | --- | --- |
@@ -76,57 +190,51 @@ npm run test:submission # with preview running: room picker, retry modes, corrup
 | Novice win rate (40 runs) | Difficulty for a first-timer: human reaction delays, misses 30% of shortcuts and 25% of stops | L1 ≥90%, L2 70–95%, L3 50–80%, L4 45–80%, L5 60–90%, L6 50–85%, L7 45–80% |
 | Pressure | Share of novice play time with 2+ robots asking at once | ≥15% from level 3 |
 | Decisions per minute | How busy the player is | Rises across levels |
-| Trust calibration (per shift) | Over-trust (risky approved, worker incidents) vs under-trust (safe plans blocked, needless stops) | Careful play scores "calibrated" |
-| Delegation (gold modes) | A careful player who gives gold only to trustworthy robots, against one who gives it to anyone, over the same Overtime seeds | Wise delivers more; only naive lets shortcuts through |
+| Trust calibration | Over-trust (risky approved, worker incidents) against under-trust (safe plans blocked, needless stops) | Careful play scores "calibrated" |
+| Delegation (gold modes) | Gold given only to trustworthy robots, against gold given to anyone, over the same seeds | Wise delivers more; only naive lets shortcuts through |
 
-The bands are enforced by `tests/difficulty.test.ts`, so a level edit that breaks the difficulty curve fails CI. The Daily Shift generator only accepts a candidate level if the careful bot gets 3 stars, the careless bot cannot, and novices win 4–9 of 10 runs.
+The bands are enforced by `tests/difficulty.test.ts`, so a level edit that breaks the difficulty curve fails the tests. The Daily Shift generator only accepts a level if the careful bot gets 3 stars, the careless bot cannot, and novices win 4–9 of 10 runs.
 
-Playtest metrics to collect by hand (15–16 Nov): time to first successful grant (target under 60 s with no help), first-five-minutes rating (target 4/5 from 5 of 8 players), and whether players can name the robot they trust least after level 1.
+## Developer tools
+
+<details>
+<summary><b>Tuning on a headset (<code>?debug</code>)</b></summary>
+
+Open the game with `?debug` to see a live panel of pinch distance, palm angle, flick speed and frame rate next to the board. The game keeps a gesture report on the device: what fired, what nearly fired, measured pinch gaps, flick speeds, palm angles, frame rate, and how much of the shift had hands tracked or a controller awake. After playing, come back to the page (still with `?debug`) and press **Copy test report**. The report never leaves the device unless it is copied.
+
+</details>
+
+<details>
+<summary><b>Filming without a headset</b></summary>
+
+`node scripts/film.cjs [scene ...]` (with `npm run preview` running, Playwright and ffmpeg installed) records scripted scenes in the emulator: `firstPermit`, `flick`, `palmStop`, `handWall`, `gold`. A shim advances each frame by exactly 1/30 s however slowly the machine renders. Output is `film/<scene>.mp4` at 1280×720 (set `W` and `H` for other sizes). Add `&nocontrols` to hide the emulator controls, and `&occluders` to see the headset's hand cut-outs. Label emulator footage as such.
+
+</details>
 
 ## Online extras (optional)
 
 The game is complete offline. A small companion server in `server/` adds two things, and the game falls back silently if it is unreachable:
 
-- **Fresh crew lines and a shift debrief, from Muse Spark Open** (Meta's open-weight model, served by Baseten). As a shift starts the game asks once for new in-character lines for that shift's robots, based on how the player has treated each of them; as it ends it asks for a two-sentence debrief from the shift supervisor. Play never waits for either. Lines that carry gameplay facts (how many seconds a shortcut saves) stay written by hand. The server only lets through short, clean lines from known robots and situations.
-- **Play together**: two players, one warehouse. The host opens a room and reads out a 4-letter code; the partner joins with it on the landing page, then both enter the headset. The host's game runs the shift and sends its state about ten times a second; the partner's actions (grant, reject, stop, gold, pause, hand and object walls) go to the host. Each player sees the other's hands as blue ghost points over the board.
+- **Fresh crew lines and a shift debrief** from Muse Spark Open (Meta's open-weight model, served by Baseten). Play never waits for either, and lines that carry gameplay facts stay written by hand.
+- **Play together:** two players, one warehouse. The host opens a room and reads out a 4-letter code; the partner joins with it. Each player sees the other's hands as blue ghost points over the board.
 
-Set `VITE_CLEARANCE_SERVER=https://your-server` when building (in Vercel: Project settings, Environment variables), or test with `?server=https://your-server`. Without it, the Play together button is hidden and robots use their written lines.
+Set `VITE_CLEARANCE_SERVER=https://your-server` when building, or test with `?server=https://your-server`. Without it, the Play together button is hidden and robots use their written lines.
 
-**Run the server:** on any small Linux host with Docker, copy `server/deploy/.env.example` to `server/deploy/.env`, fill in `DOMAIN` (for example `51-15-1-2.sslip.io` for IP 51.15.1.2) and `BASETEN_API_KEY`, then from `server/deploy` run `docker compose up -d --build`. Caddy gets the HTTPS certificate. `GET /health` reports whether the model key is set. The `.env` file is git-ignored.
+<details>
+<summary><b>Run the server</b></summary>
 
-## How it is built
+On any small Linux host with Docker, copy `server/deploy/.env.example` to `server/deploy/.env`, fill in `DOMAIN` (for example `51-15-1-2.sslip.io` for IP 51.15.1.2) and `BASETEN_API_KEY`, then from `server/deploy` run `docker compose up -d --build`. Caddy gets the HTTPS certificate. `GET /health` reports whether the model key is set. The `.env` file is git-ignored.
 
-```
-src/
-  core/        Pure TypeScript simulation, no rendering: deterministic and unit-tested
-    game.ts      Robots' state machine, authority (permits, stops, rules), hazards, scoring
-    planner.ts   A* routing, space-time reservations so cleared robots never collide
-    rng.ts       Seeded PRNG; Daily Shift seed from the UTC date
-  levels/      Level JSON files + validator
-  game/        Glue between the simulation and the XR world
-    app.ts       Board, tokens, buttons, gestures to actions, HUD, level flow
-    coach.ts     One-line tutorial hints driven by game events
-    system.ts    IWSDK ECS system: frame loop, grab and press events
-  xr/          Rendering and input
-    board-view.ts  Procedural tabletop scene from a Game
-    gestures.ts    WebXR hand-joint features: pinch, open palm, palm normal, flick velocity
-    models.ts      Procedural low-poly robots, workers, crates, buttons, permit tokens
-    hud.ts, audio.ts
-tests/         Vitest: planner, authority, traps, and bots that play every level
-```
-
-Design rules the code enforces:
-
-- **Agents act, the player authorises.** Robots always choose and plan on their own; the player never steers them. A robot only moves after `Game.grant()` consumes a valid, unexpired permit.
-- **Stops never wait for the planner.** `Game.stop()` halts immediately and drops the plan; the robot must be cleared again.
-- **Traps are real plans.** A shortcut-biased robot plans while ignoring one rule. Granting it causes an incident; rejecting it teaches that robot to plan honestly for that task.
-- **Deterministic.** Same level seed and same inputs give the same outcome, so levels are testable and the Daily Shift is fair.
-- **Works offline.** The game needs no account or server; the optional online extras above fail quietly, so nothing can break a shift.
+</details>
 
 ## Status
 
-Submission materials: [form copy and release checklist](docs/SUBMISSION.md), [video script](docs/VIDEO-SCRIPT.md), and [physical headset acceptance sheet](docs/HEADSET-TEST.md). Hardware checks are explicitly pending until a tester records results.
+Working: the core simulation, campaign levels 1–7, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, depth walls, spatial sound, the desktop preview and the landing page.
 
-Working: core simulation, levels 1–7, Daily Shift, Overtime, standing clearance, crew memory, desk anchoring, spatial sound, desktop preview and landing page (automated tests cover rules, difficulty, saved-data recovery and co-op validation; a careful bot wins every level with 3 stars, a careless one loses the safety levels).
+Played on a Meta Quest 3 in passthrough in November 2026. Fixes from those sessions are in: fingertips press only the nearest button, stop buttons need a closer touch, end cards say why a shift was lost, louder audio, and a hint when a controller is keeping hand tracking off. Formal hardware measurements (frame lows, thermals) are tracked in the [headset acceptance sheet](docs/HEADSET-TEST.md).
 
-Not yet verified on a headset: hand-gesture thresholds, passthrough placement height and performance.
+Submission materials: [form copy and release checklist](docs/SUBMISSION.md) and [video script](docs/VIDEO-SCRIPT.md).
+
+## Author
+
+Built by **Othniel Obasi**. All rights reserved (see `package.json`). Hand poses for the ghost-hand tutorial come from the MIT-licensed pose library of Meta's Immersive Web Emulation Runtime.
