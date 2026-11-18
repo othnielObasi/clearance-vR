@@ -68,15 +68,23 @@ export class Sfx {
       const ctx = new AudioContext();
       this.ctx = ctx;
       this.master = ctx.createGain();
-      this.master.gain.value = 0.4;
-      this.master.connect(ctx.destination);
+      // Loud enough to carry on a headset recording (0.4 captured at about -40 dB mean), with a
+      // gentle limiter so stacked effects never clip.
+      this.master.gain.value = 1;
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -14;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 6;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.2;
+      this.master.connect(limiter).connect(ctx.destination);
       this.sfxBus = ctx.createGain();
       this.sfxBus.connect(this.master);
       this.musicFilter = ctx.createBiquadFilter();
       this.musicFilter.type = 'lowpass';
       this.musicFilter.frequency.value = 900;
       this.musicBus = ctx.createGain();
-      this.musicBus.gain.value = 0.32;
+      this.musicBus.gain.value = 0.4;
       this.musicFilter.connect(this.musicBus).connect(this.master);
       this.noise = this.makeNoise();
       this.startAmbience();
@@ -117,7 +125,7 @@ export class Sfx {
   setPaused(p: boolean) {
     if (p === this.paused || !this.ctx || !this.musicBus) return;
     this.paused = p;
-    this.musicBus.gain.setTargetAtTime(p ? 0.08 : 0.32, this.ctx.currentTime, 0.2);
+    this.musicBus.gain.setTargetAtTime(p ? 0.1 : 0.4, this.ctx.currentTime, 0.2);
   }
 
   // ------------------------------------------------------------------ voices
