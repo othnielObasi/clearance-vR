@@ -6,7 +6,8 @@ import { ClearanceApp } from './game/app';
 import { GestureLog } from './game/gesture-log';
 import { CoopLink } from './net/coop';
 import { SERVER_URL } from './net/server';
-import { overtimeBest, streakEnding } from './game/progress';
+import { loadProgress, overtimeBest, streakEnding } from './game/progress';
+import { LEVELS } from './levels';
 import { makeClearanceSystem } from './game/system';
 import { enterXR } from './game/entry';
 
@@ -80,6 +81,22 @@ async function boot() {
   startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = false;
   if (arOK) startBtn.textContent = done ? 'Replay the campaign' : next > 0 ? `Continue: level ${next + 1}` : 'Start shift';
   else startBtn.textContent = done ? 'Replay the preview' : next > 0 ? `Continue the preview: level ${next + 1}` : 'Play the preview';
+  // Once there is campaign progress, any level reached so far (level 1 included) can be replayed.
+  const levelsRow = $<HTMLDivElement>('levels');
+  const reached = done ? LEVELS.length : Math.min(LEVELS.length, Math.max(next, loadProgress().unlocked) + 1);
+  if (reached > 1) {
+    for (let i = 0; i < reached; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'plain';
+      b.textContent = String(i + 1);
+      b.title = `Level ${i + 1}: ${LEVELS[i]!.name}`;
+      b.setAttribute('aria-label', b.title);
+      b.addEventListener('click', () => void go('campaign', i));
+      levelsRow.append(b);
+    }
+    levelsRow.hidden = false;
+  }
   dailyBtn.textContent = streak > 1 ? `Daily Shift, ${streak}-day streak` : 'Daily Shift';
   overtimeBtn.textContent = best > 0 ? `Overtime, best ${best}` : 'Overtime';
 
@@ -179,7 +196,7 @@ async function boot() {
     : 'No headset here, so this opens a preview you play with your mouse by clicking the buttons above each robot. For the real thing, open this page on a Quest.';
 
   let entering = false;
-  const go = async (mode: 'campaign' | 'daily' | 'overtime') => {
+  const go = async (mode: 'campaign' | 'daily' | 'overtime', level?: number) => {
     if (entering) return;
     entering = true;
     startBtn.disabled = dailyBtn.disabled = overtimeBtn.disabled = true;
@@ -190,7 +207,7 @@ async function boot() {
         /* nothing to load */
       } else if (mode === 'daily') app?.loadDaily();
       else if (mode === 'overtime') app?.loadOvertime();
-      else app?.loadLevel(app.campaignStart());
+      else app?.loadLevel(level ?? app.campaignStart());
       body.classList.remove('result');
       body.classList.add('playing');
       window.scrollTo(0, 0);
