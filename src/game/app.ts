@@ -1831,14 +1831,20 @@ export class ClearanceApp {
    */
   private updateHandHint(dt: number, paused: boolean) {
     const session = this.world.session;
-    if (!session || paused || this.game.status !== 'playing' || this.tracker.hands.left.tracked || this.tracker.hands.right.tracked) {
+    if (!session || paused || this.game.status !== 'playing') {
+      this.handsMissingFor = 0;
+      return;
+    }
+    const hand = this.tracker.hands.left.tracked || this.tracker.hands.right.tracked;
+    const controllers = [...session.inputSources].some((src) => !src.hand && !!src.gamepad);
+    this.gestureLog.tracking(dt, hand, controllers);
+    if (hand) {
       this.handsMissingFor = 0;
       return;
     }
     this.handsMissingFor += dt;
     if (this.handsMissingFor < 2 || this.clock - this.handHintAt < 8) return;
     this.handHintAt = this.clock;
-    const controllers = [...session.inputSources].some((src) => !src.hand && !!src.gamepad);
     this.coach.say(controllers ? 'Put the controllers down: your hands do everything.' : "Can't see your hands. Keep them in view, in good light.", 4);
   }
 
