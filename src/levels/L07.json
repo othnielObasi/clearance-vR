@@ -253,10 +253,5 @@
   },
   "timeLimitSec": 110,
   "parSec": 75,
-  "wakeDelaySec": {
-    "r1": 1,
-    "r2": 2,
-    "r3": 3,
-    "r4": 4
-  }
+  "wakeDelaySec": { "r1": 1, "r2": 1, "r3": 1, "r4": 1 }
 }

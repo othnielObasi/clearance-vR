@@ -703,9 +703,15 @@ export class Game {
     const occupied = new Set(
       this.robots.filter((o) => o !== r && o.state !== 'executing').map((o) => cellKey(o.pos)),
     );
+    // Crates waiting on the floor for other jobs are in the way: plan round them, never through them.
+    const crates = new Set(
+      this.tasks
+        .filter((t) => t.id !== task.id && t.status !== 'done' && !this.robots.some((o) => o.taskId === t.id && o.carrying))
+        .map((t) => cellKey(t.from)),
+    );
     const blocked = (x: number, y: number) => {
       const k = key(x, y);
-      if (this.walls.has(k) || occupied.has(k) || this.blockers.has(k)) return true;
+      if (this.walls.has(k) || occupied.has(k) || this.blockers.has(k) || crates.has(k)) return true;
       if (this.inWorkerZone([x, y])) return true;
       if (this.rules.has('noWorkerZoneEntry') && this.zones.has(k) && bias !== 'workerZone') return true;
       if (this.rules.has('noSpillEntry') && this.spills.has(k) && bias !== 'spill') return true;
