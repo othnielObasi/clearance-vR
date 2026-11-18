@@ -173,6 +173,57 @@ interface Forklift {
   rackYaw: number;
 }
 
+interface ForkState {
+  /** 0 at the staging end of the aisle, 1 at the racking end. */
+  u: number;
+  yaw: 'out' | 'in' | 'rack';
+  /** Fork height, 0 floor to 1 top shelf. */
+  h: number;
+  /** How far it has crept forward under the pallet or into the racking (0..1). */
+  n: number;
+}
+/** One step of the job: the state at its end, and where the pallet is during it. */
+type ForkStep = ForkState & { dur: number | 'drive' | 'turn'; load: 'fork' | 'S' | 'E' };
+const CARRY = 0.1;
+/** Fork lift that sets a pallet on a tall rack's top shelf (its beam is at 46 mm). */
+const TOP_SHELF = 0.046;
+const FORK_JOB: ForkStep[] = [
+  // At staging, forks under the pallet: pick it up and back out.
+  { dur: 1.2, u: 0, yaw: 'rack', h: CARRY, n: 1, load: 'fork' },
+  { dur: 0.8, u: 0, yaw: 'rack', h: CARRY, n: 0, load: 'fork' },
+  { dur: 'turn', u: 0, yaw: 'out', h: CARRY, n: 0, load: 'fork' },
+  { dur: 'drive', u: 1, yaw: 'out', h: CARRY, n: 0, load: 'fork' },
+  // Put it away on the top shelf.
+  { dur: 'turn', u: 1, yaw: 'rack', h: CARRY, n: 0, load: 'fork' },
+  { dur: 2.2, u: 1, yaw: 'rack', h: 1, n: 0, load: 'fork' },
+  { dur: 0.8, u: 1, yaw: 'rack', h: 1, n: 1, load: 'fork' },
+  { dur: 0.6, u: 1, yaw: 'rack', h: 0.93, n: 1, load: 'E' },
+  { dur: 0.8, u: 1, yaw: 'rack', h: 0.93, n: 0, load: 'E' },
+  { dur: 2, u: 1, yaw: 'rack', h: 0, n: 0, load: 'E' },
+  // Back to staging empty, a pause, and out again.
+  { dur: 'turn', u: 1, yaw: 'in', h: 0, n: 0, load: 'E' },
+  { dur: 'drive', u: 0, yaw: 'in', h: 0, n: 0, load: 'E' },
+  { dur: 'turn', u: 0, yaw: 'rack', h: 0, n: 0, load: 'E' },
+  { dur: 2, u: 0, yaw: 'rack', h: 0, n: 0, load: 'E' },
+  { dur: 'turn', u: 0, yaw: 'out', h: 0, n: 0, load: 'E' },
+  { dur: 'drive', u: 1, yaw: 'out', h: 0, n: 0, load: 'E' },
+  // Fetch it down from the top shelf.
+  { dur: 'turn', u: 1, yaw: 'rack', h: 0, n: 0, load: 'E' },
+  { dur: 2.2, u: 1, yaw: 'rack', h: 0.93, n: 0, load: 'E' },
+  { dur: 0.8, u: 1, yaw: 'rack', h: 0.93, n: 1, load: 'E' },
+  { dur: 0.6, u: 1, yaw: 'rack', h: 1, n: 1, load: 'E' },
+  { dur: 0.8, u: 1, yaw: 'rack', h: 1, n: 0, load: 'fork' },
+  { dur: 2, u: 1, yaw: 'rack', h: CARRY, n: 0, load: 'fork' },
+  { dur: 'turn', u: 1, yaw: 'in', h: CARRY, n: 0, load: 'fork' },
+  { dur: 'drive', u: 0, yaw: 'in', h: CARRY, n: 0, load: 'fork' },
+  // Set it back down on the staging spot.
+  { dur: 'turn', u: 0, yaw: 'rack', h: CARRY, n: 0, load: 'fork' },
+  { dur: 0.8, u: 0, yaw: 'rack', h: CARRY, n: 1, load: 'fork' },
+  { dur: 1, u: 0, yaw: 'rack', h: 0, n: 1, load: 'fork' },
+  { dur: 1.5, u: 0, yaw: 'rack', h: 0, n: 1, load: 'S' },
+];
+const FORK_JOB_SECONDS = (drive: number) => FORK_JOB.reduce((s, st) => s + (st.dur === 'drive' ? drive : st.dur === 'turn' ? 0.9 : st.dur), 0);
+
 /** Most of the player's own deliveries riding the conveyor at once. */
 const MAX_MINE = 6;
 /**
@@ -217,6 +268,7 @@ export class WarehouseSurround {
   private forklifts: Forklift[] = [];
   private forkBodies!: InstancedMesh;
   private forkCarriages!: InstancedMesh;
+  private forkLoads!: InstancedMesh;
   private beacons: Vector3[] = [];
   private bulbMat!: MeshBasicMaterial;
   private poolMat!: MeshBasicMaterial;
@@ -302,7 +354,9 @@ export class WarehouseSurround {
         // stop-all and pause buttons sit.
         for (let z = halfD - FRONT_CLEAR - PITCH / 2; z >= -(halfD + 0.05); z -= PITCH) {
           if (Math.hypot(x, z) > reach) continue;
-          const r = makeRack(seed++, seed % 3 !== 0);
+          // The forklifts store pallets on the top shelf of the row they face, so that row is all tall.
+          const tall = x === sideRows[1] || (seed + 1) % 3 !== 0;
+          const r = makeRack(seed++, tall);
           r.position.set(side * x, FLOOR_Y, z);
           r.rotation.y = Math.PI / 2;
           racks.add(r);
@@ -595,8 +649,9 @@ export class WarehouseSurround {
     }
     chassis.push(painted(placed(new BoxGeometry(0.0135, 0.0016, 0.0022), 0, 0.0735, -0.0118), G));
     chassis.push(painted(placed(new BoxGeometry(0.004, 0.0018, 0.0012), 0, 0.0315, 0.012), 0xffa020)); // roof beacon
-    const carriage: BufferGeometry[] = [
-      painted(placed(new BoxGeometry(0.0145, 0.009, 0.0012), 0, 0.006, -0.0138), D),
+    const carriage: BufferGeometry[] = [painted(placed(new BoxGeometry(0.0145, 0.009, 0.0012), 0, 0.006, -0.0138), D)];
+    // The load (pallet and crates) is its own mesh: it rides the forks, or waits where it was set down.
+    const load: BufferGeometry[] = [
       painted(placed(new BoxGeometry(0.016, 0.0028, 0.016), 0, 0.0033, -0.0228), 0xa87a4a), // pallet
       painted(placed(new BoxGeometry(0.0062, 0.0098, 0.0062), -0.0038, 0.0096, -0.0262), PARCEL),
       painted(placed(new BoxGeometry(0.0062, 0.0098, 0.0062), 0.0038, 0.0096, -0.0262), PARCEL),
@@ -607,42 +662,57 @@ export class WarehouseSurround {
     const fmat = withFade(new MeshStandardMaterial({ roughness: 0.5, metalness: 0.2, vertexColors: true }));
     this.forkBodies = new InstancedMesh(mergeGeometries(chassis)!, fmat, this.forklifts.length);
     this.forkCarriages = new InstancedMesh(mergeGeometries(carriage)!, fmat, this.forklifts.length);
-    for (const im of [this.forkBodies, this.forkCarriages]) {
+    this.forkLoads = new InstancedMesh(mergeGeometries(load)!, fmat, this.forklifts.length);
+    for (const im of [this.forkBodies, this.forkCarriages, this.forkLoads]) {
       im.frustumCulled = false;
       this.root.add(im);
     }
   }
 
-  /** Where a forklift is in its loop: position, heading, and how high its forks are (0..1). */
+  /**
+   * Where a forklift is in its job, and where its pallet is. The job is a loop with one pallet:
+   * pick it up from the staging spot on the floor at one end of the aisle, drive it to the other end,
+   * lift it and slide it onto the top shelf, back out and lower the empty forks, drive back; later
+   * fetch it down again and set it back on the staging spot. The pallet never appears or vanishes.
+   */
   private forkliftPose(f: Forklift, time: number) {
-    const span = Math.abs(f.to - f.from);
-    const drive = span / 0.04;
-    const turn = 0.9;
-    const lift = 2.2;
-    const hold = 1.4;
-    // drive, turn, lift, hold, lower, turn back; then the same back the other way.
-    const half = drive + turn + lift + hold + lift + turn;
-    let t = (time + f.phase * half * 2) % (half * 2);
-    const out = t < half;
-    if (!out) t -= half;
-    const ease = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, x)));
-    const start = out ? f.from : f.to;
-    const end = out ? f.to : f.from;
-    const along = f.axis === 'x' ? facing(end - start, 0) : facing(0, end - start);
-    // Turn the short way round to face the racking.
-    const toRack = along + Math.atan2(Math.sin(f.rackYaw - along), Math.cos(f.rackYaw - along));
-    let x = end;
-    let yaw = toRack;
-    let h = 0;
-    if (t < drive) {
-      x = start + (end - start) * ease(t / drive);
-      yaw = along;
-    } else if ((t -= drive) < turn) yaw = along + (toRack - along) * ease(t / turn);
-    else if ((t -= turn) < lift) h = ease(t / lift);
-    else if ((t -= lift) < hold) h = 1;
-    else if ((t -= hold) < lift) h = 1 - ease(t / lift);
-    else yaw = toRack + (along - toRack) * ease((t - lift) / turn);
-    return f.axis === 'x' ? { x, z: f.line, yaw, h } : { x: f.line, z: x, yaw, h };
+    const D = Math.abs(f.to - f.from) / 0.04;
+    const T = 0.9;
+    let t = (time + f.phase * FORK_JOB_SECONDS(D)) % FORK_JOB_SECONDS(D);
+    let prev = FORK_JOB[FORK_JOB.length - 1]!;
+    let key = prev;
+    let k = 0;
+    for (const step of FORK_JOB) {
+      const dur = step.dur === 'drive' ? D : step.dur === 'turn' ? T : step.dur;
+      if (t < dur) {
+        key = step;
+        k = 0.5 - 0.5 * Math.cos((Math.PI * t) / dur);
+        break;
+      }
+      t -= dur;
+      prev = step;
+    }
+    const pose = (st: ForkState) => {
+      const along = f.axis === 'x' ? facing(f.to - f.from, 0) : facing(0, f.to - f.from);
+      const yaw = st.yaw === 'rack' ? f.rackYaw : st.yaw === 'out' ? along : along + Math.PI;
+      return { u: st.u, yaw, h: st.h, n: st.n };
+    };
+    const a = pose(prev);
+    const b = pose(key);
+    const dyaw = Math.atan2(Math.sin(b.yaw - a.yaw), Math.cos(b.yaw - a.yaw));
+    const at = (u: number, yaw: number, h: number, n: number) => {
+      const along = f.from + (f.to - f.from) * u;
+      // Nudge: creep forward (into the pallet, or the racking) along the heading.
+      const fx = -Math.sin(yaw) * n * 0.012;
+      const fz = -Math.cos(yaw) * n * 0.012;
+      const x = (f.axis === 'x' ? along : f.line) + fx;
+      const z = (f.axis === 'x' ? f.line : along) + fz;
+      return { x, z, yaw, lift: h * TOP_SHELF };
+    };
+    const truck = at(a.u + (b.u - a.u) * k, a.yaw + dyaw * k, a.h + (b.h - a.h) * k, a.n + (b.n - a.n) * k);
+    const station = (end: 0 | 1) => at(end, f.rackYaw, end, 1);
+    const load = key.load === 'fork' ? truck : station(key.load === 'S' ? 0 : 1);
+    return { truck, load };
   }
 
   /**
@@ -788,11 +858,13 @@ export class WarehouseSurround {
     }
     // Forklifts.
     this.forklifts.forEach((f, i) => {
-      const { x, z, yaw, h } = this.forkliftPose(f, time);
-      this.m.makeRotationY(yaw).setPosition(x, FLOOR_Y, z);
+      const { truck, load } = this.forkliftPose(f, time);
+      this.m.makeRotationY(truck.yaw).setPosition(truck.x, FLOOR_Y, truck.z);
       this.forkBodies.setMatrixAt(i, this.m);
-      this.m.setPosition(x, FLOOR_Y + h * (RACK_TALL - 0.004), z);
+      this.m.setPosition(truck.x, FLOOR_Y + truck.lift, truck.z);
       this.forkCarriages.setMatrixAt(i, this.m);
+      this.m.makeRotationY(load.yaw).setPosition(load.x, FLOOR_Y + load.lift, load.z);
+      this.forkLoads.setMatrixAt(i, this.m);
     });
     // Reactions: beacons, lamp colour.
     const alarm = time < this.alarmUntil;
@@ -845,7 +917,7 @@ export class WarehouseSurround {
       a[i + 2] = this.dustBase[i + 2]! + Math.cos(time * 0.17 + i * 0.6) * 0.012;
     }
     pos.needsUpdate = true;
-    for (const im of [this.bodies, this.lights, this.loads, this.parcels, this.workerBodies, this.workerLegs, this.workerArms, this.forkBodies, this.forkCarriages]) {
+    for (const im of [this.bodies, this.lights, this.loads, this.parcels, this.workerBodies, this.workerLegs, this.workerArms, this.forkBodies, this.forkCarriages, this.forkLoads]) {
       if (im) im.instanceMatrix.needsUpdate = true;
     }
     if (this.lights.instanceColor) this.lights.instanceColor.needsUpdate = true;
